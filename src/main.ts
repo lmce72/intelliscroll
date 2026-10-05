@@ -56,6 +56,12 @@ export default class DoomscrollPlugin extends Plugin {
     );
     if (!hadPresets) migrated = true;
 
+    const activeIds = resolveActiveIds(presets, loadedSettings);
+    // A fresh migration lands on the "Default" preset in every group, so the
+    // default composite describes exactly what is in force and should be shown
+    // as active rather than leaving the user apparently on no preset at all.
+    if (!hadPresets) activeIds.activeTotalPresetId = presets.totals[0]!.id;
+
     const settings: PluginSettings = {
       batchSize:
         typeof loadedSettings.batchSize === 'number' &&
@@ -68,7 +74,7 @@ export default class DoomscrollPlugin extends Plugin {
           ? loadedSettings.infiniteScroll
           : DEFAULT_SETTINGS.infiniteScroll,
       presets,
-      ...resolveActiveIds(presets, loadedSettings),
+      ...activeIds,
     };
 
     this.data = {

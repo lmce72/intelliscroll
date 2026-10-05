@@ -9,6 +9,7 @@ import {
   type DisplayPreset,
   type FileCategory,
   type FilterPreset,
+  type FilterableKind,
   type FilterRule,
   type PluginSettings,
   type PresetLibrary,
@@ -45,6 +46,41 @@ export function newPresetId(): string {
 
 export function emptyRule(): FilterRule {
   return { mode: 'blacklist', values: [] };
+}
+
+/** The kinds that are standalone files rather than notes. */
+export const STANDALONE_KINDS: readonly FilterableKind[] = [
+  'image',
+  'document',
+  'video',
+  'audio',
+  'other',
+];
+
+/**
+ * The file-type rule equivalent to the old `showNonMarkdownFiles` boolean.
+ *
+ * Hiding standalone files must NOT be expressed as an empty whitelist: that
+ * would exclude `note` too and empty the feed entirely. The old setting only
+ * ever gated attachments, so the faithful translation is a blacklist of every
+ * standalone kind, leaving notes untouched.
+ */
+export function fileTypesAllowingStandalone(
+  allowed: boolean
+): FilterPreset['fileTypes'] {
+  return allowed
+    ? { mode: 'blacklist', values: [] }
+    : { mode: 'blacklist', values: [...STANDALONE_KINDS] };
+}
+
+/** Whether a file-type rule lets any standalone file through. */
+export function allowsStandaloneFiles(
+  rule: FilterPreset['fileTypes']
+): boolean {
+  if (rule.mode === 'blacklist') {
+    return STANDALONE_KINDS.some((kind) => !rule.values.includes(kind));
+  }
+  return STANDALONE_KINDS.some((kind) => rule.values.includes(kind));
 }
 
 export function defaultFilterPreset(
@@ -126,11 +162,7 @@ export function libraryFromLegacySettings(
   filter.tags = { mode: 'blacklist', values: [...legacy.excludeTags] };
   filter.globs = { mode: 'blacklist', values: [...legacy.excludeGlobs] };
   filter.searchQuery = legacy.searchQuery;
-  // `showNonMarkdownFiles: false` means "no standalone files at all", which is
-  // expressed as a whitelist of no categories.
-  filter.fileTypes = legacy.showNonMarkdownFiles
-    ? { mode: 'blacklist', values: [] }
-    : { mode: 'whitelist', values: [] };
+  filter.fileTypes = fileTypesAllowingStandalone(legacy.showNonMarkdownFiles);
   filter.includeMediaOnlyNotes = legacy.includeMediaOnlyNotes;
 
   const algorithm = defaultAlgorithmPreset();
@@ -580,9 +612,9 @@ export function libraryFromUnknownLegacy(
     values: stringArray(raw.excludeGlobs, []),
   };
   filter.searchQuery = typeof raw.searchQuery === 'string' ? raw.searchQuery : '';
-  filter.fileTypes = boolOr(raw.showNonMarkdownFiles, true)
-    ? { mode: 'blacklist', values: [] }
-    : { mode: 'whitelist', values: [] };
+  filter.fileTypes = fileTypesAllowingStandalone(
+    boolOr(raw.showNonMarkdownFiles, true)
+  );
   filter.includeMediaOnlyNotes = boolOr(raw.includeMediaOnlyNotes, true);
 
   if (raw.algorithm === 'off' || raw.algorithm === 'fsrs' || raw.algorithm === 'sm2' || raw.algorithm === 'leitner') {

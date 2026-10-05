@@ -14,7 +14,9 @@ import {
   activeAlgorithm,
   activeDisplay,
   activeFilter,
+  allowsStandaloneFiles,
   defaultLibrary,
+  fileTypesAllowingStandalone,
   normalizeRule,
 } from './presets';
 import {
@@ -398,10 +400,7 @@ export class DoomscrollSettingTab extends PluginSettingTab {
       batchSize: this.plugin.data.settings.batchSize,
       infiniteScroll: this.plugin.data.settings.infiniteScroll,
       includeMediaOnlyNotes: filter.includeMediaOnlyNotes,
-      showNonMarkdownFiles: !(
-        filter.fileTypes.mode === 'whitelist' &&
-        filter.fileTypes.values.length === 0
-      ),
+      showNonMarkdownFiles: allowsStandaloneFiles(filter.fileTypes),
       simplifiedView: display.simplifiedView,
       reduceAnimations: display.reduceAnimations,
       previewSize: display.previewSize,
@@ -503,9 +502,7 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         if (typeof value !== 'boolean') return;
         // The whole-rule extremes of the file-type rule. Editing the rule's
         // mode and categories directly belongs to the preset manager UI.
-        filter.fileTypes = value
-          ? { mode: 'blacklist', values: [] }
-          : { mode: 'whitelist', values: [] };
+        filter.fileTypes = fileTypesAllowingStandalone(value);
         break;
       case 'simplifiedView':
         if (typeof value !== 'boolean') return;

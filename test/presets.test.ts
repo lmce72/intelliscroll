@@ -4,15 +4,18 @@ import {
   activeAlgorithm,
   activeDisplay,
   activeFilter,
+  allowsStandaloneFiles,
   defaultFilterPreset,
   defaultLibrary,
   duplicatePreset,
   ensureLibrary,
+  fileTypesAllowingStandalone,
   idsForTotal,
   libraryFromUnknownLegacy,
   removePreset,
   resolveActiveIds,
 } from '../src/presets.ts';
+import { compileFilter } from '../src/filtering.ts';
 import type { PresetLibrary } from '../src/types.ts';
 
 // ─── integrity ─────────────────────────────────────────────────────────────
@@ -125,18 +128,37 @@ test('flat settings migrate into a single Default preset, field for field', () =
   assert.equal(library.totals.length, 1);
 });
 
-test('showNonMarkdownFiles false migrates to an empty whitelist', () => {
-  const hidden = libraryFromUnknownLegacy({ showNonMarkdownFiles: false });
-  assert.deepEqual(hidden.filters[0]!.fileTypes, {
-    mode: 'whitelist',
-    values: [],
-  });
+test('hiding standalone files keeps notes in the feed', () => {
+  // This is the regression that mattered: `showNonMarkdownFiles: false` only
+  // ever gated *attachments*. Migrating it to an empty whitelist excluded
+  // `note` as well and emptied the feed completely — a silent data-shaped bug
+  // that no amount of type checking would have caught.
+  const hidden = compileFilter(
+    libraryFromUnknownLegacy({ showNonMarkdownFiles: false }).filters[0]!
+  );
+  assert.equal(hidden.passesPath('note.md'), true, 'notes must survive');
+  assert.equal(hidden.passesPath('paper.pdf'), false);
+  assert.equal(hidden.passesPath('photo.png'), false);
 
-  const shown = libraryFromUnknownLegacy({ showNonMarkdownFiles: true });
-  assert.deepEqual(shown.filters[0]!.fileTypes, {
-    mode: 'blacklist',
-    values: [],
-  });
+  const shown = compileFilter(
+    libraryFromUnknownLegacy({ showNonMarkdownFiles: true }).filters[0]!
+  );
+  assert.equal(shown.passesPath('note.md'), true);
+  assert.equal(shown.passesPath('paper.pdf'), true);
+});
+
+test('allowsStandaloneFiles reports whether any file kind gets through', () => {
+  assert.equal(
+    allowsStandaloneFiles(fileTypesAllowingStandalone(false)),
+    false
+  );
+  assert.equal(allowsStandaloneFiles(fileTypesAllowingStandalone(true)), true);
+  // A whitelist containing only notes allows no standalone files either.
+  assert.equal(allowsStandaloneFiles({ mode: 'whitelist', values: ['note'] }), false);
+  assert.equal(
+    allowsStandaloneFiles({ mode: 'whitelist', values: ['note', 'image'] }),
+    true
+  );
 });
 
 test('the pre-fork flat frontmatter list becomes the after-preview list', () => {
