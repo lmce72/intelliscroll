@@ -2,7 +2,7 @@
 
 **Scroll your own notes, resurfaced on a forgetting curve.**
 
-A fork of [Doomscroll](https://github.com/yaroshevych/doomscroll) that replaces
+A fork of Doomscroll that replaces
 the pure-random shuffle with a spaced-repetition scheduler.
 
 **Nothing is ever written into your notes.** No frontmatter properties, no
@@ -209,7 +209,7 @@ npm run build  # Production build
 
 MIT.
 
-IntelliScroll is a fork of [Doomscroll](https://github.com/yaroshevych/doomscroll)
+IntelliScroll is a fork of Doomscroll
 by Oleg Yaroshevych. The original copyright notice is retained in
 [LICENSE](LICENSE); the feed, indexing, rendering and settings infrastructure
 are his work, and this fork adds the scheduling engine on top.

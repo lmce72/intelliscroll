@@ -17,16 +17,16 @@ import {
   libraryFromUnknownLegacy,
   resolveActiveIds,
 } from './presets';
-import { DEFAULT_SETTINGS, DoomscrollSettingTab } from './settings';
+import { DEFAULT_SETTINGS, IntelliScrollSettingTab } from './settings';
 import { setLanguage } from './i18n';
 import { NoteOverlay } from './noteOverlay';
 import { Indexer } from './indexer';
 import { SrsStore, logSrsError } from './srsLog';
-import { DoomscrollView, VIEW_TYPE_DOOMSCROLL } from './view';
+import { IntelliScrollView, VIEW_TYPE_INTELLISCROLL } from './view';
 
 const INDEX_FORMAT_VERSION = 3;
 
-export default class DoomscrollPlugin extends Plugin {
+export default class IntelliScrollPlugin extends Plugin {
   data!: PluginData;
   indexer!: Indexer;
   /** Sidecar persistence for resurfacing state. */
@@ -203,8 +203,8 @@ export default class DoomscrollPlugin extends Plugin {
 
     // Register view
     this.registerView(
-      VIEW_TYPE_DOOMSCROLL,
-      (leaf) => new DoomscrollView(leaf, this)
+      VIEW_TYPE_INTELLISCROLL,
+      (leaf) => new IntelliScrollView(leaf, this)
     );
 
     // Ribbon icon
@@ -212,7 +212,7 @@ export default class DoomscrollPlugin extends Plugin {
       void this.activateView();
     });
 
-    // Command to open Doomscroll
+    // Command to open IntelliScroll
     this.addCommand({
       id: 'open-feed',
       name: 'Open feed',
@@ -222,7 +222,7 @@ export default class DoomscrollPlugin extends Plugin {
     });
 
     // Settings tab
-    this.addSettingTab(new DoomscrollSettingTab(this.app, this));
+    this.addSettingTab(new IntelliScrollSettingTab(this.app, this));
 
     // The floating marker for notes reached from the feed. Both events matter:
     // switching panes and opening a file can each be the first moment the
@@ -241,13 +241,13 @@ export default class DoomscrollPlugin extends Plugin {
   async activateView(): Promise<void> {
     // Try to reuse existing leaf
     const existingLeaf = this.app.workspace.getLeavesOfType(
-      VIEW_TYPE_DOOMSCROLL
+      VIEW_TYPE_INTELLISCROLL
     )[0];
 
     if (existingLeaf) {
       await this.app.workspace.revealLeaf(existingLeaf);
       const view = existingLeaf.view;
-      if (view instanceof DoomscrollView) {
+      if (view instanceof IntelliScrollView) {
         await view.refreshForCurrentSettings();
       }
       return;
@@ -256,7 +256,7 @@ export default class DoomscrollPlugin extends Plugin {
     // Create new leaf in main workspace
     const leaf = this.app.workspace.getLeaf('tab');
     await leaf.setViewState({
-      type: VIEW_TYPE_DOOMSCROLL,
+      type: VIEW_TYPE_INTELLISCROLL,
       active: true,
     });
     await this.app.workspace.revealLeaf(leaf);
@@ -422,10 +422,10 @@ export default class DoomscrollPlugin extends Plugin {
    * labels and aria-labels would otherwise stay in the previous language.
    */
   rebuildFeedViews(): void {
-    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DOOMSCROLL);
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_INTELLISCROLL);
     for (const leaf of leaves) {
       const view = leaf.view;
-      if (view instanceof DoomscrollView) view.rebuildForLanguageChange();
+      if (view instanceof IntelliScrollView) view.rebuildForLanguageChange();
     }
   }
 
@@ -446,9 +446,9 @@ export default class DoomscrollPlugin extends Plugin {
     this.settingsRefreshTimer = window.setTimeout(() => {
       this.settingsRefreshTimer = null;
       const views = this.app.workspace
-        .getLeavesOfType(VIEW_TYPE_DOOMSCROLL)
+        .getLeavesOfType(VIEW_TYPE_INTELLISCROLL)
         .map((leaf) => leaf.view)
-        .filter((view): view is DoomscrollView => view instanceof DoomscrollView);
+        .filter((view): view is IntelliScrollView => view instanceof IntelliScrollView);
 
       void Promise.all(views.map((view) => view.refreshForCurrentSettings()));
     }, 250);

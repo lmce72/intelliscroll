@@ -1,12 +1,12 @@
-/* Doomscroll view */
+/* IntelliScroll view */
 
-.doomscroll-view-container {
+.intelliscroll-view-container {
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
-.doomscroll-header {
+.intelliscroll-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -16,18 +16,18 @@
   flex-shrink: 0;
 }
 
-.doomscroll-title {
+.intelliscroll-title {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 600;
 }
 
-.doomscroll-controls {
+.intelliscroll-controls {
   display: flex;
   gap: 0.5rem;
 }
 
-.doomscroll-refresh-status {
+.intelliscroll-refresh-status {
   flex: 1;
   align-self: center;
   margin-left: 1rem;
@@ -35,12 +35,12 @@
   font-size: 0.85rem;
 }
 
-.doomscroll-reshuffle-btn,
-.doomscroll-back-btn,
-.doomscroll-tune-btn,
-.doomscroll-filter-btn,
-.doomscroll-save-preset-btn,
-.doomscroll-settings-btn {
+.intelliscroll-reshuffle-btn,
+.intelliscroll-back-btn,
+.intelliscroll-tune-btn,
+.intelliscroll-filter-btn,
+.intelliscroll-save-preset-btn,
+.intelliscroll-settings-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -54,30 +54,30 @@
   transition: background-color 0.2s;
 }
 
-.doomscroll-reshuffle-btn:hover,
-.doomscroll-back-btn:hover:not(:disabled),
-.doomscroll-tune-btn:hover,
-.doomscroll-filter-btn:hover,
-.doomscroll-save-preset-btn:hover:not(:disabled),
-.doomscroll-settings-btn:hover {
+.intelliscroll-reshuffle-btn:hover,
+.intelliscroll-back-btn:hover:not(:disabled),
+.intelliscroll-tune-btn:hover,
+.intelliscroll-filter-btn:hover,
+.intelliscroll-save-preset-btn:hover:not(:disabled),
+.intelliscroll-settings-btn:hover {
   background-color: var(--background-modifier-hover);
 }
 
 /* The save button is inert until there is something to save; the back button
    is inert when there is nowhere to go back to. */
-.doomscroll-back-btn:disabled,
-.doomscroll-save-preset-btn:disabled {
+.intelliscroll-back-btn:disabled,
+.intelliscroll-save-preset-btn:disabled {
   opacity: 0.35;
   cursor: default;
 }
 
-.doomscroll-icon {
+.intelliscroll-icon {
   width: 1.2rem;
   height: 1.2rem;
   fill: currentColor;
 }
 
-.doomscroll-body {
+.intelliscroll-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -88,7 +88,7 @@
   max-width: none;
 }
 
-.doomscroll-card {
+.intelliscroll-card {
   box-sizing: border-box;
   border: 1px solid var(--background-modifier-border);
   border-radius: 0.5rem;
@@ -103,13 +103,13 @@
   word-break: break-word;
 }
 
-.doomscroll-card:hover {
+.intelliscroll-card:hover {
   border-color: var(--text-faint);
 }
 
-/* Specific enough to beat themes/snippets that restyle .doomscroll-card and
+/* Specific enough to beat themes/snippets that restyle .intelliscroll-card and
  * its :hover. A single accent border plus a soft halo (no second ring). */
-.doomscroll-view-container .doomscroll-card.doomscroll-card-focused {
+.intelliscroll-view-container .intelliscroll-card.intelliscroll-card-focused {
   border-color: var(--interactive-accent);
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--interactive-accent) 22%, transparent),
@@ -118,17 +118,17 @@
   scroll-margin-top: 0.75rem;
 }
 
-.doomscroll-view-container
-  .doomscroll-card.doomscroll-card-focused.doomscroll-card-navigating {
-  animation: doomscroll-card-navigation 280ms cubic-bezier(0.2, 0.75, 0.25, 1);
+.intelliscroll-view-container
+  .intelliscroll-card.intelliscroll-card-focused.intelliscroll-card-navigating {
+  animation: intelliscroll-card-navigation 280ms cubic-bezier(0.2, 0.75, 0.25, 1);
 }
 
-.doomscroll-view-container.doomscroll-reduce-animation .doomscroll-card {
+.intelliscroll-view-container.intelliscroll-reduce-animation .intelliscroll-card {
   animation: none !important;
   transition: none !important;
 }
 
-@keyframes doomscroll-card-navigation {
+@keyframes intelliscroll-card-navigation {
   from {
     transform: translateY(0.75rem) scale(0.99);
     opacity: 0.72;
@@ -141,39 +141,39 @@
   }
 }
 
-.doomscroll-card:focus {
+.intelliscroll-card:focus {
   outline: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .doomscroll-card {
+  .intelliscroll-card {
     transition: none;
   }
 }
 
-.doomscroll-help-list {
+.intelliscroll-help-list {
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 0.5rem 1.25rem;
   margin: 0;
 }
 
-.doomscroll-help-list dt {
+.intelliscroll-help-list dt {
   display: flex;
   gap: 0.25rem;
 }
 
-.doomscroll-help-list dd {
+.intelliscroll-help-list dd {
   margin: 0;
   color: var(--text-muted);
 }
 
-.doomscroll-help-list kbd {
+.intelliscroll-help-list kbd {
   min-width: 1.6em;
   text-align: center;
 }
 
-.doomscroll-card-titlerow {
+.intelliscroll-card-titlerow {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -181,7 +181,7 @@
   margin-bottom: 0.75rem;
 }
 
-.doomscroll-card-title {
+.intelliscroll-card-title {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
@@ -189,28 +189,28 @@
   overflow-wrap: break-word;
 }
 
-.doomscroll-card-date {
+.intelliscroll-card-date {
   color: var(--text-muted);
   font-size: 0.85rem;
   white-space: nowrap;
 }
 
 @media (max-width: 600px) {
-  .doomscroll-card-titlerow {
+  .intelliscroll-card-titlerow {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.25rem;
   }
 }
 
-.doomscroll-card-image-container {
+.intelliscroll-card-image-container {
   margin-bottom: 1rem;
   overflow: hidden;
   border-radius: 0.375rem;
   max-height: 240px;
 }
 
-.doomscroll-card-image {
+.intelliscroll-card-image {
   width: 100%;
   max-height: 240px;
   object-fit: cover;
@@ -218,7 +218,7 @@
   display: block;
 }
 
-.doomscroll-card-pdf-container {
+.intelliscroll-card-pdf-container {
   height: 240px;
   margin-bottom: 1rem;
   overflow: hidden;
@@ -228,14 +228,14 @@
   pointer-events: none;
 }
 
-.doomscroll-card-pdf {
+.intelliscroll-card-pdf {
   width: 100%;
   height: 100%;
   border: 0;
   display: block;
 }
 
-.doomscroll-card-video-container {
+.intelliscroll-card-video-container {
   max-height: 240px;
   margin-bottom: 1rem;
   overflow: hidden;
@@ -244,7 +244,7 @@
   pointer-events: none;
 }
 
-.doomscroll-card-video {
+.intelliscroll-card-video {
   width: 100%;
   max-height: 240px;
   object-fit: cover;
@@ -252,17 +252,17 @@
   display: block;
 }
 
-.doomscroll-card-inline-attachment .doomscroll-card-image-container,
-.doomscroll-card-inline-attachment .doomscroll-card-pdf-container,
-.doomscroll-card-inline-attachment .doomscroll-card-video-container {
+.intelliscroll-card-inline-attachment .intelliscroll-card-image-container,
+.intelliscroll-card-inline-attachment .intelliscroll-card-pdf-container,
+.intelliscroll-card-inline-attachment .intelliscroll-card-video-container {
   margin-bottom: 0;
 }
 
-.doomscroll-card-inline-attachment .doomscroll-card-snippet {
+.intelliscroll-card-inline-attachment .intelliscroll-card-snippet {
   display: none;
 }
 
-.doomscroll-card-snippet {
+.intelliscroll-card-snippet {
   position: relative;
   margin: 0;
   color: var(--text-muted);
@@ -271,7 +271,7 @@
   white-space: pre-line;
 }
 
-.doomscroll-card-snippet-interaction-shield {
+.intelliscroll-card-snippet-interaction-shield {
   position: absolute;
   z-index: 2147483647;
   inset: 0;
@@ -279,7 +279,7 @@
   background: transparent;
 }
 
-.doomscroll-card-frontmatter {
+.intelliscroll-card-frontmatter {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -291,7 +291,7 @@
   line-height: 1.4;
 }
 
-.doomscroll-card-frontmatter-before {
+.intelliscroll-card-frontmatter-before {
   margin-top: 0;
   margin-bottom: 1rem;
   padding-top: 0;
@@ -300,23 +300,23 @@
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.doomscroll-card-frontmatter-row {
+.intelliscroll-card-frontmatter-row {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 0.5rem;
 }
 
-.doomscroll-card-frontmatter-property {
+.intelliscroll-card-frontmatter-property {
   font-weight: 600;
 }
 
-.doomscroll-card-frontmatter-value {
+.intelliscroll-card-frontmatter-value {
   min-width: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
-.doomscroll-infinite-scroll-sentinel {
+.intelliscroll-infinite-scroll-sentinel {
   min-height: 2rem;
   padding: 1rem;
   color: var(--text-muted);
@@ -324,7 +324,7 @@
   font-size: 0.85rem;
 }
 
-.doomscroll-card-snippet-markdown {
+.intelliscroll-card-snippet-markdown {
   white-space: normal;
   overflow: hidden;
   display: -webkit-box;
@@ -336,8 +336,8 @@
 
 /* Bases owns its internal virtualization layout. Clip the rendered view at
  * the same preview height instead of rewriting its private DOM/styles. */
-.doomscroll-card-snippet-markdown .bases-view,
-.doomscroll-card-snippet-markdown .bases-embed {
+.intelliscroll-card-snippet-markdown .bases-view,
+.intelliscroll-card-snippet-markdown .bases-embed {
   max-height: calc(1.35rem * 10);
   overflow: hidden;
 }
@@ -345,60 +345,60 @@
 /* Plugin output is a static snapshot inside a clickable card. Prevent plugin
  * controls, links, and row hover styles from treating it as an active view;
  * pointer events still reach the card itself and open the note. */
-.doomscroll-card .doomscroll-card-snippet .dataview,
-.doomscroll-card .doomscroll-card-snippet .dataview *,
-.doomscroll-card .doomscroll-card-snippet .bases-view,
-.doomscroll-card .doomscroll-card-snippet .bases-view *,
-.doomscroll-card .doomscroll-card-snippet .bases-embed,
-.doomscroll-card .doomscroll-card-snippet .bases-embed * {
+.intelliscroll-card .intelliscroll-card-snippet .dataview,
+.intelliscroll-card .intelliscroll-card-snippet .dataview *,
+.intelliscroll-card .intelliscroll-card-snippet .bases-view,
+.intelliscroll-card .intelliscroll-card-snippet .bases-view *,
+.intelliscroll-card .intelliscroll-card-snippet .bases-embed,
+.intelliscroll-card .intelliscroll-card-snippet .bases-embed * {
   pointer-events: none;
   cursor: default;
 }
 
-.doomscroll-card-snippet-markdown > :first-child,
-.doomscroll-card-snippet-simple > :first-child {
+.intelliscroll-card-snippet-markdown > :first-child,
+.intelliscroll-card-snippet-simple > :first-child {
   margin-top: 0;
 }
 
-.doomscroll-card-snippet-markdown > :last-child,
-.doomscroll-card-snippet-simple > :last-child {
+.intelliscroll-card-snippet-markdown > :last-child,
+.intelliscroll-card-snippet-simple > :last-child {
   margin-bottom: 0;
 }
 
-.doomscroll-card-snippet-markdown p,
-.doomscroll-card-snippet-markdown ul,
-.doomscroll-card-snippet-markdown ol,
-.doomscroll-card-snippet-markdown blockquote,
-.doomscroll-card-snippet-simple p,
-.doomscroll-card-snippet-simple ul,
-.doomscroll-card-snippet-simple ol,
-.doomscroll-card-snippet-simple blockquote {
+.intelliscroll-card-snippet-markdown p,
+.intelliscroll-card-snippet-markdown ul,
+.intelliscroll-card-snippet-markdown ol,
+.intelliscroll-card-snippet-markdown blockquote,
+.intelliscroll-card-snippet-simple p,
+.intelliscroll-card-snippet-simple ul,
+.intelliscroll-card-snippet-simple ol,
+.intelliscroll-card-snippet-simple blockquote {
   margin-top: 0.35rem;
   margin-bottom: 0.35rem;
 }
 
-.doomscroll-preview-link {
+.intelliscroll-preview-link {
   color: var(--link-color);
   text-decoration: underline;
   cursor: inherit;
 }
 
-.doomscroll-preview-table {
+.intelliscroll-preview-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
   white-space: normal;
 }
 
-.doomscroll-preview-table th,
-.doomscroll-preview-table td {
+.intelliscroll-preview-table th,
+.intelliscroll-preview-table td {
   padding: 0.2rem 0.35rem;
   border: 1px solid var(--background-modifier-border);
   text-align: left;
   vertical-align: top;
 }
 
-.doomscroll-preview-code {
+.intelliscroll-preview-code {
   max-width: 100%;
   overflow: hidden;
   white-space: pre-wrap;
@@ -406,40 +406,40 @@
   font-size: 0.82rem;
 }
 
-.doomscroll-simple-preview .doomscroll-simple-heading {
+.intelliscroll-simple-preview .intelliscroll-simple-heading {
   font-weight: 400;
 }
 
-.doomscroll-card-snippet-simple p,
-.doomscroll-card-snippet-simple ul,
-.doomscroll-card-snippet-simple ol,
-.doomscroll-card-snippet-simple blockquote {
+.intelliscroll-card-snippet-simple p,
+.intelliscroll-card-snippet-simple ul,
+.intelliscroll-card-snippet-simple ol,
+.intelliscroll-card-snippet-simple blockquote {
   margin-top: 0.15rem;
   margin-bottom: 0.15rem;
 }
 
-.doomscroll-card-snippet-simple ul,
-.doomscroll-card-snippet-simple ol {
+.intelliscroll-card-snippet-simple ul,
+.intelliscroll-card-snippet-simple ol {
   padding-left: 1.25rem;
 }
 
-.doomscroll-card-snippet-simple .doomscroll-preview-table {
+.intelliscroll-card-snippet-simple .intelliscroll-preview-table {
   font-size: 0.8rem;
   line-height: 1.25;
 }
 
-.doomscroll-card-snippet-simple .doomscroll-preview-table th,
-.doomscroll-card-snippet-simple .doomscroll-preview-table td {
+.intelliscroll-card-snippet-simple .intelliscroll-preview-table th,
+.intelliscroll-card-snippet-simple .intelliscroll-preview-table td {
   padding: 0.1rem 0.25rem;
 }
 
-.doomscroll-card-snippet-simple .doomscroll-preview-code {
+.intelliscroll-card-snippet-simple .intelliscroll-preview-code {
   max-height: 7rem;
   margin: 0.2rem 0;
   line-height: 1.25;
 }
 
-.doomscroll-card-snippet-simple {
+.intelliscroll-card-snippet-simple {
   overflow: hidden;
   white-space: normal;
   display: -webkit-box;
@@ -449,60 +449,60 @@
   max-height: calc(1.35rem * 8);
 }
 
-.doomscroll-card-snippet-simple .bases-view,
-.doomscroll-card-snippet-simple .bases-embed {
+.intelliscroll-card-snippet-simple .bases-view,
+.intelliscroll-card-snippet-simple .bases-embed {
   max-height: calc(1.35rem * 8);
   overflow: hidden;
 }
 
-.doomscroll-card-snippet-size-small {
+.intelliscroll-card-snippet-size-small {
   -webkit-line-clamp: 4;
   line-clamp: 4;
   max-height: calc(1.35rem * 4);
 }
 
-.doomscroll-card-snippet-size-small .bases-view,
-.doomscroll-card-snippet-size-small .bases-embed {
+.intelliscroll-card-snippet-size-small .bases-view,
+.intelliscroll-card-snippet-size-small .bases-embed {
   max-height: calc(1.35rem * 4);
 }
 
-.doomscroll-card-snippet-markdown.doomscroll-card-snippet-size-large {
+.intelliscroll-card-snippet-markdown.intelliscroll-card-snippet-size-large {
   -webkit-line-clamp: 15;
   line-clamp: 15;
   max-height: calc(1.35rem * 15);
 }
 
-.doomscroll-card-snippet-markdown.doomscroll-card-snippet-size-large .bases-view,
-.doomscroll-card-snippet-markdown.doomscroll-card-snippet-size-large .bases-embed {
+.intelliscroll-card-snippet-markdown.intelliscroll-card-snippet-size-large .bases-view,
+.intelliscroll-card-snippet-markdown.intelliscroll-card-snippet-size-large .bases-embed {
   max-height: calc(1.35rem * 15);
 }
 
-.doomscroll-card-snippet-simple.doomscroll-card-snippet-size-large {
+.intelliscroll-card-snippet-simple.intelliscroll-card-snippet-size-large {
   -webkit-line-clamp: 12;
   line-clamp: 12;
   max-height: calc(1.35rem * 12);
 }
 
-.doomscroll-card-snippet-simple.doomscroll-card-snippet-size-large .bases-view,
-.doomscroll-card-snippet-simple.doomscroll-card-snippet-size-large .bases-embed {
+.intelliscroll-card-snippet-simple.intelliscroll-card-snippet-size-large .bases-view,
+.intelliscroll-card-snippet-simple.intelliscroll-card-snippet-size-large .bases-embed {
   max-height: calc(1.35rem * 12);
 }
 
-.doomscroll-loading {
+.intelliscroll-loading {
   text-align: center;
   padding: 2rem;
   color: var(--text-muted);
 }
 
-.doomscroll-settings-header {
+.intelliscroll-settings-header {
   padding-top: 1rem;
 }
 
-.doomscroll-settings-header .setting-item-control {
+.intelliscroll-settings-header .setting-item-control {
   margin-top: 1rem;
 }
 
-.doomscroll-excluded-folders-list {
+.intelliscroll-excluded-folders-list {
   margin: 0 0 1rem;
   overflow: hidden;
   border: 1px solid var(--background-modifier-border);
@@ -510,7 +510,7 @@
   background: var(--background-secondary);
 }
 
-.doomscroll-excluded-folder-item {
+.intelliscroll-excluded-folder-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -520,22 +520,22 @@
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.doomscroll-excluded-folder-item:last-child {
+.intelliscroll-excluded-folder-item:last-child {
   border-bottom: none;
 }
 
-.doomscroll-excluded-folder-remove {
+.intelliscroll-excluded-folder-remove {
   flex-shrink: 0;
 }
 
-.doomscroll-reshuffle-section {
+.intelliscroll-reshuffle-section {
   text-align: center;
   padding: 2rem 0 1rem 0;
   padding-bottom: calc(1rem + env(safe-area-inset-bottom) + 4rem + 1.5rem);
   margin-top: 1rem;
 }
 
-.doomscroll-reshuffle-end-btn {
+.intelliscroll-reshuffle-end-btn {
   padding: 0.75rem 1.5rem;
   font-size: 1rem;
   font-weight: 500;
@@ -547,14 +547,14 @@
   transition: opacity 0.2s;
 }
 
-.doomscroll-reshuffle-end-btn:hover {
+.intelliscroll-reshuffle-end-btn:hover {
   opacity: 0.9;
 }
 
 /* ─── Floating marker for a note opened from the feed ─────────────────────
    Anchored to the note pane rather than the viewport so it travels with the
    pane and does not stack up when several notes are open side by side. */
-.doomscroll-note-float {
+.intelliscroll-note-float {
   position: absolute;
   right: 1rem;
   bottom: 1rem;
@@ -569,8 +569,8 @@
   box-shadow: var(--shadow-s);
 }
 
-.doomscroll-note-float-rate,
-.doomscroll-note-float-ignore {
+.intelliscroll-note-float-rate,
+.intelliscroll-note-float-ignore {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -585,7 +585,19 @@
    Obsidian keeps its own mobile affordances, and the left is the easier reach.
    Keyed off the class Obsidian puts on the body for the platform, so this
    follows the app rather than guessing from the viewport width. */
-.is-mobile .doomscroll-note-float {
+.is-mobile .intelliscroll-note-float {
   right: auto;
   left: 1rem;
+}
+
+/* Holds the card's action buttons as a single flex child. The title row spreads
+   its children apart, so without this the two buttons end up at opposite ends
+   of the card rather than beside each other. */
+.intelliscroll-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  /* The row aligns on the baseline for text; buttons should not. */
+  align-self: center;
 }

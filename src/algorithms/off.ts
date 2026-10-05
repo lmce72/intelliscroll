@@ -1,7 +1,7 @@
 import { makeState, type SchedulerAlgorithm } from './shared.ts';
 
 /**
- * The original Doomscroll behaviour: a shuffled feed with no scheduling.
+ * The original IntelliScroll behaviour: a shuffled feed with no scheduling.
  *
  * This is the default, so upgrading a vault never changes what the user sees.
  * Its output is byte-identical to the pre-SRS `selectBatch`.

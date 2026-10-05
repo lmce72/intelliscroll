@@ -11,7 +11,7 @@ import type { MessageModule } from '../i18n.ts';
 export const messages: MessageModule = {
   en: {
     'view.title': 'IntelliScroll',
-    'view.displayText': 'Doomscroll',
+    'view.displayText': 'IntelliScroll',
     'view.feed.label': 'IntelliScroll',
     'view.status.loading': 'Loading preview…',
     'view.reshuffle.text': 'Reshuffle',
@@ -77,7 +77,7 @@ export const messages: MessageModule = {
     'view.modal.save': 'Save',
     'view.modal.cancel': 'Cancel',
 
-    'view.help.title': 'Doomscroll shortcuts',
+    'view.help.title': 'IntelliScroll shortcuts',
     'view.help.next': 'Next card',
     'view.help.previous': 'Previous card',
     'view.help.first': 'First card',
@@ -90,7 +90,7 @@ export const messages: MessageModule = {
   },
   zh: {
     'view.title': 'IntelliScroll',
-    'view.displayText': 'Doomscroll',
+    'view.displayText': 'IntelliScroll',
     'view.feed.label': 'IntelliScroll',
     'view.status.loading': '正在加载预览…',
     'view.reshuffle.text': '重掷',
@@ -156,7 +156,7 @@ export const messages: MessageModule = {
     'view.modal.save': '保存',
     'view.modal.cancel': '取消',
 
-    'view.help.title': 'Doomscroll 快捷键',
+    'view.help.title': 'IntelliScroll 快捷键',
     'view.help.next': '下一篇',
     'view.help.previous': '上一篇',
     'view.help.first': '第一张卡片',

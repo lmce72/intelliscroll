@@ -8,7 +8,7 @@ import {
   Setting,
   type SettingDefinitionItem,
 } from 'obsidian';
-import DoomscrollPlugin from './main';
+import IntelliScrollPlugin from './main';
 import { allAlgorithms } from './algorithms';
 import {
   activeAlgorithm,
@@ -135,10 +135,10 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   activeTotalPresetId: DEFAULT_PRESETS.totals[0]!.id,
 };
 
-export class DoomscrollSettingTab extends PluginSettingTab {
-  plugin: DoomscrollPlugin;
+export class IntelliScrollSettingTab extends PluginSettingTab {
+  plugin: IntelliScrollPlugin;
 
-  constructor(app: App, plugin: DoomscrollPlugin) {
+  constructor(app: App, plugin: IntelliScrollPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
@@ -270,12 +270,12 @@ export class DoomscrollSettingTab extends PluginSettingTab {
           // copy of the list on each change, so a single excluded folder would
           // appear once per save.
           const existing = setting.settingEl.querySelector(
-            '.doomscroll-excluded-folders-list'
+            '.intelliscroll-excluded-folders-list'
           );
           const list =
             existing instanceof HTMLElement
               ? existing
-              : setting.settingEl.createDiv('doomscroll-excluded-folders-list');
+              : setting.settingEl.createDiv('intelliscroll-excluded-folders-list');
           this.renderExcludedFolders(list);
         },
       },
@@ -753,12 +753,12 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     }
 
     for (const folder of this.flatView().excludeFolders) {
-      const row = container.createDiv('doomscroll-excluded-folder-item');
+      const row = container.createDiv('intelliscroll-excluded-folder-item');
       row.createSpan({ text: folder });
       row
         .createEl('button', {
           text: '×',
-          cls: 'doomscroll-excluded-folder-remove',
+          cls: 'intelliscroll-excluded-folder-remove',
           attr: {
             'aria-label': t('settings.excludedFolders.remove', { folder }),
           },
@@ -773,7 +773,7 @@ export class DoomscrollSettingTab extends PluginSettingTab {
 
 function configureHeader(setting: Setting): void {
   setting
-    .setClass('doomscroll-settings-header')
+    .setClass('intelliscroll-settings-header')
     .setName(t('settings.header.title'))
     .setHeading()
     .addButton((button) =>

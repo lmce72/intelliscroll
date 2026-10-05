@@ -29,7 +29,7 @@ export class ShortcutsModal extends Modal {
 
   onOpen(): void {
     this.setTitle(t('view.help.title'));
-    const list = this.contentEl.createEl('dl', { cls: 'doomscroll-help-list' });
+    const list = this.contentEl.createEl('dl', { cls: 'intelliscroll-help-list' });
     for (const [keys, description] of shortcuts()) {
       const dt = list.createEl('dt');
       keys.forEach((key) => dt.createEl('kbd', { text: key }));

@@ -1,5 +1,5 @@
 import { Menu, TFile } from 'obsidian';
-import type DoomscrollPlugin from './main';
+import type IntelliScrollPlugin from './main';
 import { getAlgorithm } from './algorithms/index.ts';
 import { SrsStore } from './srsLog.ts';
 import { t } from './i18n.ts';
@@ -32,7 +32,7 @@ export function ratingLabel(rating: Rating): string {
 }
 
 /** Whether the active filter preset ignores this path. */
-export function isIgnored(plugin: DoomscrollPlugin, path: string): boolean {
+export function isIgnored(plugin: IntelliScrollPlugin, path: string): boolean {
   const lower = path.toLowerCase();
   return plugin
     .getEffectiveFilter()
@@ -46,7 +46,7 @@ export function isIgnored(plugin: DoomscrollPlugin, path: string): boolean {
  * override, because wanting never to see a note again is worth keeping.
  */
 export async function toggleIgnored(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   path: string
 ): Promise<boolean> {
   const preset = plugin.data.settings.presets.filters.find(
@@ -75,7 +75,7 @@ export async function toggleIgnored(
  * would otherwise look like it worked.
  */
 export async function applyRating(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   path: string,
   rating: Rating,
   source: 'auto' | 'explicit'
@@ -107,7 +107,7 @@ export async function applyRating(
 }
 
 export interface RatingMenuOptions {
-  plugin: DoomscrollPlugin;
+  plugin: IntelliScrollPlugin;
   event: MouseEvent;
   path: string;
   /** Called only when a rating was actually written. */

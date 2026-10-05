@@ -15,7 +15,7 @@ import {
   setIcon,
   type App,
 } from 'obsidian';
-import DoomscrollPlugin from './main';
+import IntelliScrollPlugin from './main';
 import { preparePreviewMarkdown, prepareRenderedPreview } from './extract';
 import {
   isPreviewSize,
@@ -47,7 +47,7 @@ import {
   isVideoPath,
 } from './media';
 
-export const VIEW_TYPE_DOOMSCROLL = 'intelliscroll-view';
+export const VIEW_TYPE_INTELLISCROLL = 'intelliscroll-view';
 const HISTORY_SAVE_DELAY_MS = 2_000;
 
 /** Icon shown on a card's rating button, per rating. */
@@ -151,7 +151,7 @@ interface CardSize {
   height: number;
 }
 
-// Keep dimensions across Doomscroll view instances while the plugin is
+// Keep dimensions across IntelliScroll view instances while the plugin is
 // loaded. This lets a feed recreated by tab history reserve image space
 // before lazy loading runs again.
 const imageDimensionCache = new Map<string, ImageDimensions>();
@@ -164,7 +164,7 @@ interface AppWithSettings {
   };
 }
 
-interface DoomscrollViewState {
+interface IntelliScrollViewState {
   batchPaths: string[];
   batchHistoryPaths: string[][];
   batchHistoryCursor: number;
@@ -184,8 +184,8 @@ interface WindowWithDataviewApi extends Window {
   DataviewAPI?: DataviewApiLike;
 }
 
-export class DoomscrollView extends ItemView {
-  plugin: DoomscrollPlugin;
+export class IntelliScrollView extends ItemView {
+  plugin: IntelliScrollPlugin;
   containerEl: HTMLElement;
   hasRendered: boolean = false;
   currentBatch: NotePreview[] = [];
@@ -236,7 +236,7 @@ export class DoomscrollView extends ItemView {
   /** Paths currently intersecting, mapped to when they became visible. */
   private visibleSince = new Map<string, number>();
 
-  constructor(leaf: WorkspaceLeaf, plugin: DoomscrollPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: IntelliScrollPlugin) {
     super(leaf);
     this.plugin = plugin;
     this.containerEl = this.contentEl;
@@ -309,9 +309,9 @@ export class DoomscrollView extends ItemView {
   }
 
   private moveCardFocus(delta: 1 | -1): void {
-    const body = this.containerEl.querySelector<HTMLElement>('.doomscroll-body');
+    const body = this.containerEl.querySelector<HTMLElement>('.intelliscroll-body');
     const cards = Array.from(
-      this.containerEl.querySelectorAll<HTMLElement>('.doomscroll-card')
+      this.containerEl.querySelectorAll<HTMLElement>('.intelliscroll-card')
     );
     if (!body || cards.length === 0) return;
 
@@ -320,7 +320,7 @@ export class DoomscrollView extends ItemView {
       cards.map((card) => card.getBoundingClientRect()),
       { top: bodyRect.top, bottom: bodyRect.bottom },
       cards.findIndex((card) =>
-        card.classList.contains('doomscroll-card-focused')
+        card.classList.contains('intelliscroll-card-focused')
       ),
       delta
     );
@@ -329,7 +329,7 @@ export class DoomscrollView extends ItemView {
   }
 
   private focusCardAt(position: 'first' | 'last'): void {
-    const cards = this.containerEl.querySelectorAll<HTMLElement>('.doomscroll-card');
+    const cards = this.containerEl.querySelectorAll<HTMLElement>('.intelliscroll-card');
     const target = position === 'first' ? cards[0] : cards[cards.length - 1];
     if (target) this.focusCard(target);
   }
@@ -337,20 +337,20 @@ export class DoomscrollView extends ItemView {
   private clearCardFocus(): void {
     this.cancelScrollAnimation();
     this.containerEl
-      .querySelector('.doomscroll-card-focused')
-      ?.classList.remove('doomscroll-card-focused');
+      .querySelector('.intelliscroll-card-focused')
+      ?.classList.remove('intelliscroll-card-focused');
     this.focusedPath = null;
     this.containerEl
-      .querySelector<HTMLElement>('.doomscroll-body')
+      .querySelector<HTMLElement>('.intelliscroll-body')
       ?.focus({ preventScroll: true });
   }
 
   /** Marks a card as the keyboard cursor and scrolls it into view. */
   private focusCard(card: HTMLElement, scroll = true): void {
     this.containerEl
-      .querySelector('.doomscroll-card-focused')
-      ?.classList.remove('doomscroll-card-focused');
-    card.classList.add('doomscroll-card-focused');
+      .querySelector('.intelliscroll-card-focused')
+      ?.classList.remove('intelliscroll-card-focused');
+    card.classList.add('intelliscroll-card-focused');
     this.focusedPath = card.dataset.path ?? null;
     // Real DOM focus lets screen readers follow the cursor.
     card.focus({ preventScroll: true });
@@ -358,15 +358,15 @@ export class DoomscrollView extends ItemView {
     if (scroll) {
       if (reduceAnimations) {
         this.cancelScrollAnimation();
-        card.classList.remove('doomscroll-card-navigating');
+        card.classList.remove('intelliscroll-card-navigating');
       } else {
-        card.classList.remove('doomscroll-card-navigating');
+        card.classList.remove('intelliscroll-card-navigating');
         void card.offsetWidth;
-        card.classList.add('doomscroll-card-navigating');
+        card.classList.add('intelliscroll-card-navigating');
       }
 
       const body = this.containerEl.querySelector<HTMLElement>(
-        '.doomscroll-body'
+        '.intelliscroll-body'
       );
       if (body) {
         const bodyTop = body.getBoundingClientRect().top + body.clientTop;
@@ -432,12 +432,12 @@ export class DoomscrollView extends ItemView {
 
   private openFocusedCard(): void {
     this.containerEl
-      .querySelector<HTMLElement>('.doomscroll-card-focused')
+      .querySelector<HTMLElement>('.intelliscroll-card-focused')
       ?.click();
   }
 
   getViewType(): string {
-    return VIEW_TYPE_DOOMSCROLL;
+    return VIEW_TYPE_INTELLISCROLL;
   }
 
   getDisplayText(): string {
@@ -449,7 +449,7 @@ export class DoomscrollView extends ItemView {
   }
 
   getState(): Record<string, unknown> {
-    const body = this.containerEl.querySelector('.doomscroll-body');
+    const body = this.containerEl.querySelector('.intelliscroll-body');
     const scrollTop =
       body instanceof HTMLElement ? body.scrollTop : this.restoredScrollTop;
 
@@ -463,7 +463,7 @@ export class DoomscrollView extends ItemView {
       focusedPath: this.focusedPath,
       scrollAnchor:
         body instanceof HTMLElement ? this.getScrollAnchor(body) : null,
-    } satisfies DoomscrollViewState;
+    } satisfies IntelliScrollViewState;
   }
 
   async setState(state: unknown): Promise<void> {
@@ -477,7 +477,7 @@ export class DoomscrollView extends ItemView {
       this.hasRendered &&
       previousPaths.length === restoredBatch.length &&
       previousPaths.every((path, index) => path === restoredBatch[index]?.path) &&
-      Boolean(this.containerEl.querySelector('.doomscroll-body'));
+      Boolean(this.containerEl.querySelector('.intelliscroll-body'));
     this.currentBatch = canKeepRenderedDom ? previousBatch : restoredBatch;
     this.batchHistory = restored.batchHistoryPaths
       .map((paths) => this.resolvePreviewPaths(paths))
@@ -495,18 +495,18 @@ export class DoomscrollView extends ItemView {
     if (this.hasRendered) {
       if (canKeepRenderedDom) {
         const body = this.containerEl.querySelector<HTMLElement>(
-          '.doomscroll-body'
+          '.intelliscroll-body'
         );
         body
-          ?.querySelector('.doomscroll-card-focused')
-          ?.classList.remove('doomscroll-card-focused');
+          ?.querySelector('.intelliscroll-card-focused')
+          ?.classList.remove('intelliscroll-card-focused');
         const focused = this.focusedPath
           ? Array.from(
-              body?.querySelectorAll<HTMLElement>('.doomscroll-card') ?? []
+              body?.querySelectorAll<HTMLElement>('.intelliscroll-card') ?? []
             ).find((card) => card.dataset.path === this.focusedPath)
           : undefined;
         if (focused) {
-          focused.classList.add('doomscroll-card-focused');
+          focused.classList.add('intelliscroll-card-focused');
           focused.focus({ preventScroll: true });
         } else if (this.focusedPath) {
           this.focusedPath = null;
@@ -522,7 +522,7 @@ export class DoomscrollView extends ItemView {
     this.isClosed = false;
     this.snippetRenderGenerations = new WeakMap();
     this.syncAnimationPreference();
-    if (this.hasRendered && this.containerEl.querySelector('.doomscroll-body')) {
+    if (this.hasRendered && this.containerEl.querySelector('.intelliscroll-body')) {
       this.resumeRenderedView();
       return;
     }
@@ -543,16 +543,16 @@ export class DoomscrollView extends ItemView {
   }
 
   private resumeRenderedView(): void {
-    const body = this.containerEl.querySelector<HTMLElement>('.doomscroll-body');
+    const body = this.containerEl.querySelector<HTMLElement>('.intelliscroll-body');
     if (!body) return;
 
     // Keep the existing DOM, scroll position, and rendered previews when
     // Obsidian reopens this same view instance after same-tab navigation.
     this.cardObserver = this.createCardObserver(body);
-    body.querySelectorAll<HTMLElement>('.doomscroll-card').forEach((card) => {
+    body.querySelectorAll<HTMLElement>('.intelliscroll-card').forEach((card) => {
       const path = card.dataset.path;
       const snippet = card.querySelector<HTMLElement>(
-        '.doomscroll-card-snippet'
+        '.intelliscroll-card-snippet'
       );
       if (
         !path ||
@@ -572,12 +572,12 @@ export class DoomscrollView extends ItemView {
       }
     });
     body
-      .querySelectorAll<HTMLIFrameElement>('.doomscroll-card-pdf')
+      .querySelectorAll<HTMLIFrameElement>('.intelliscroll-card-pdf')
       .forEach((pdf) => {
         if (!pdf.getAttribute('src')) this.setupPdfLazyLoad(pdf);
       });
     body
-      .querySelectorAll<HTMLVideoElement>('.doomscroll-card-video')
+      .querySelectorAll<HTMLVideoElement>('.intelliscroll-card-video')
       .forEach((video) => {
         if (!video.getAttribute('src')) this.setupVideoLazyLoad(video);
       });
@@ -585,10 +585,10 @@ export class DoomscrollView extends ItemView {
 
     if (this.focusedPath) {
       const focused = Array.from(
-        body.querySelectorAll<HTMLElement>('.doomscroll-card')
+        body.querySelectorAll<HTMLElement>('.intelliscroll-card')
       ).find((card) => card.dataset.path === this.focusedPath);
       if (focused) {
-        focused.classList.add('doomscroll-card-focused');
+        focused.classList.add('intelliscroll-card-focused');
         focused.focus({ preventScroll: true });
       }
     }
@@ -597,14 +597,14 @@ export class DoomscrollView extends ItemView {
   private syncAnimationPreference(): void {
     const reduceAnimations = this.plugin.getEffectiveDisplay().reduceAnimations;
     this.containerEl.classList.toggle(
-      'doomscroll-reduce-animation',
+      'intelliscroll-reduce-animation',
       reduceAnimations
     );
     if (reduceAnimations) {
       this.cancelScrollAnimation();
       this.containerEl
-        .querySelectorAll('.doomscroll-card-navigating')
-        .forEach((card) => card.classList.remove('doomscroll-card-navigating'));
+        .querySelectorAll('.intelliscroll-card-navigating')
+        .forEach((card) => card.classList.remove('intelliscroll-card-navigating'));
     }
   }
 
@@ -665,7 +665,7 @@ export class DoomscrollView extends ItemView {
 
       if (this.hasRendered) {
         this.renderBatch();
-        this.containerEl.querySelector('.doomscroll-body')?.scrollTo({ top: 0 });
+        this.containerEl.querySelector('.intelliscroll-body')?.scrollTo({ top: 0 });
       }
     }
 
@@ -677,23 +677,23 @@ export class DoomscrollView extends ItemView {
 
   private async render(): Promise<void> {
     this.containerEl.empty();
-    this.containerEl.addClass('doomscroll-view-container');
+    this.containerEl.addClass('intelliscroll-view-container');
     this.syncAnimationPreference();
 
     // Header row
-    const header = this.containerEl.createDiv('doomscroll-header');
+    const header = this.containerEl.createDiv('intelliscroll-header');
 
     const title = header.createEl('h2');
     title.textContent = t('view.title');
-    title.className = 'doomscroll-title';
+    title.className = 'intelliscroll-title';
 
-    this.refreshStatusEl = header.createDiv('doomscroll-refresh-status');
+    this.refreshStatusEl = header.createDiv('intelliscroll-refresh-status');
     this.refreshStatusEl.setAttribute('aria-live', 'polite');
-    const controls = header.createDiv('doomscroll-controls');
+    const controls = header.createDiv('intelliscroll-controls');
 
     // Reshuffle button (refresh icon)
     const reshuffleBtn = controls.createEl('button');
-    reshuffleBtn.className = 'doomscroll-reshuffle-btn';
+    reshuffleBtn.className = 'intelliscroll-reshuffle-btn';
     reshuffleBtn.setAttribute('aria-label', t('view.action.reshuffle'));
     setIcon(reshuffleBtn, 'refresh-cw');
     reshuffleBtn.addEventListener('click', () => {
@@ -702,7 +702,7 @@ export class DoomscrollView extends ItemView {
 
     // Previous batch button
     this.backButton = controls.createEl('button');
-    this.backButton.className = 'doomscroll-back-btn';
+    this.backButton.className = 'intelliscroll-back-btn';
     this.backButton.setAttribute('aria-label', t('view.action.back'));
     setIcon(this.backButton, 'arrow-left');
     this.backButton.addEventListener('click', () => {
@@ -713,7 +713,7 @@ export class DoomscrollView extends ItemView {
     // Live tuning button. Opens a native menu so the feed can be adjusted
     // without leaving it; nothing chosen here is saved.
     const tuneBtn = controls.createEl('button');
-    tuneBtn.className = 'doomscroll-tune-btn';
+    tuneBtn.className = 'intelliscroll-tune-btn';
     setIcon(tuneBtn, 'sliders-horizontal');
     tuneBtn.addEventListener('click', (event) => {
       this.showTuningMenu(event);
@@ -724,7 +724,7 @@ export class DoomscrollView extends ItemView {
     // Filter preset button: switch which notes are eligible without leaving the
     // feed, and adjust one temporarily.
     const filterBtn = controls.createEl('button');
-    filterBtn.className = 'doomscroll-filter-btn';
+    filterBtn.className = 'intelliscroll-filter-btn';
     setIcon(filterBtn, 'filter');
     filterBtn.addEventListener('click', (event) => {
       this.showFilterMenu(event);
@@ -734,7 +734,7 @@ export class DoomscrollView extends ItemView {
     // Save button: turn the temporary filter into a named preset. Only useful
     // once something has actually been changed, so it stays disabled until then.
     const saveBtn = controls.createEl('button');
-    saveBtn.className = 'doomscroll-save-preset-btn';
+    saveBtn.className = 'intelliscroll-save-preset-btn';
     setIcon(saveBtn, 'save');
     saveBtn.addEventListener('click', () => {
       this.promptSaveFilterPreset();
@@ -745,7 +745,7 @@ export class DoomscrollView extends ItemView {
 
     // Settings button
     const settingsBtn = controls.createEl('button');
-    settingsBtn.className = 'doomscroll-settings-btn';
+    settingsBtn.className = 'intelliscroll-settings-btn';
     settingsBtn.setAttribute('aria-label', t('view.action.settings'));
     setIcon(settingsBtn, 'settings');
     settingsBtn.addEventListener('click', () => {
@@ -755,7 +755,7 @@ export class DoomscrollView extends ItemView {
     });
 
     // Body - scrollable container
-    const bodyContainer = this.containerEl.createDiv('doomscroll-body');
+    const bodyContainer = this.containerEl.createDiv('intelliscroll-body');
     bodyContainer.setAttribute('role', 'feed');
     bodyContainer.setAttribute('aria-label', t('view.feed.label'));
     bodyContainer.tabIndex = 0;
@@ -782,7 +782,7 @@ export class DoomscrollView extends ItemView {
     // filter changes made while the plugin is running.
     const needsInitialIndex = Object.keys(this.plugin.data.previews).length === 0;
     const loadingEl = needsInitialIndex
-      ? bodyContainer.createDiv('doomscroll-loading')
+      ? bodyContainer.createDiv('intelliscroll-loading')
       : null;
     if (loadingEl) {
       loadingEl.textContent = t('view.status.indexingVault');
@@ -848,12 +848,12 @@ export class DoomscrollView extends ItemView {
   private restoreScrollPosition(): void {
     const scrollTop = this.restoredScrollTop;
     const restore = (): void => {
-      const body = this.containerEl.querySelector('.doomscroll-body');
+      const body = this.containerEl.querySelector('.intelliscroll-body');
       if (body instanceof HTMLElement) {
         const anchor = this.restoredScrollAnchor;
         const anchorCard = anchor
           ? Array.from(
-              body.querySelectorAll<HTMLElement>('.doomscroll-card')
+              body.querySelectorAll<HTMLElement>('.intelliscroll-card')
             ).find((card) => card.dataset.path === anchor.path)
           : undefined;
         if (anchor && anchorCard) {
@@ -884,7 +884,7 @@ export class DoomscrollView extends ItemView {
     const bodyTop = body.getBoundingClientRect().top;
     const bodyBottom = bodyTop + body.clientHeight;
     for (const card of Array.from(
-      body.querySelectorAll<HTMLElement>('.doomscroll-card')
+      body.querySelectorAll<HTMLElement>('.intelliscroll-card')
     )) {
       const rect = card.getBoundingClientRect();
       if (rect.bottom > bodyTop && rect.top < bodyBottom) {
@@ -968,11 +968,11 @@ export class DoomscrollView extends ItemView {
     // back from an opened note); a different batch simply has no match.
     const restored = this.focusedPath
       ? Array.from(
-          container.querySelectorAll<HTMLElement>('.doomscroll-card')
+          container.querySelectorAll<HTMLElement>('.intelliscroll-card')
         ).find((card) => card.dataset.path === this.focusedPath)
       : undefined;
     if (restored) {
-      restored.classList.add('doomscroll-card-focused');
+      restored.classList.add('intelliscroll-card-focused');
       restored.focus({ preventScroll: true });
     } else {
       this.focusedPath = null;
@@ -980,10 +980,10 @@ export class DoomscrollView extends ItemView {
 
     // Reshuffle button at end
     const reshuffleSection = container.createDiv(
-      'doomscroll-reshuffle-section'
+      'intelliscroll-reshuffle-section'
     );
     const reshuffleBtn = reshuffleSection.createEl('button');
-    reshuffleBtn.className = 'doomscroll-reshuffle-end-btn';
+    reshuffleBtn.className = 'intelliscroll-reshuffle-end-btn';
     reshuffleBtn.textContent = t('view.reshuffle.end');
     reshuffleBtn.dataset.defaultLabel = t('view.reshuffle.end');
     reshuffleBtn.addEventListener('click', () => {
@@ -991,7 +991,7 @@ export class DoomscrollView extends ItemView {
     });
 
     if (this.plugin.data.settings.infiniteScroll) {
-      const sentinel = container.createDiv('doomscroll-infinite-scroll-sentinel');
+      const sentinel = container.createDiv('intelliscroll-infinite-scroll-sentinel');
       this.observeInfiniteScroll(container, sentinel);
     }
   }
@@ -1515,7 +1515,7 @@ export class DoomscrollView extends ItemView {
     // rating menu would make the common case two clicks instead of one. The
     // warning colour marks it as the destructive-feeling one.
     const ignoreButton = container.createEl('button', {
-      cls: 'clickable-icon mod-warning doomscroll-card-ignore',
+      cls: 'clickable-icon mod-warning intelliscroll-card-ignore',
     });
     const paintIgnore = (ignored: boolean): void => {
       setIcon(ignoreButton, ignoreIcon(ignored));
@@ -1532,7 +1532,7 @@ export class DoomscrollView extends ItemView {
     });
 
     const button = container.createEl('button', {
-      cls: 'clickable-icon doomscroll-card-rate',
+      cls: 'clickable-icon intelliscroll-card-rate',
     });
     button.dataset.ratingPath = preview.path;
     const rateLabel = t('view.action.rate', { title: preview.title });
@@ -1557,9 +1557,9 @@ export class DoomscrollView extends ItemView {
   /** Show the chosen rating on the card so the action has visible feedback. */
   private updateRatingButton(path: string, rating: Rating): void {
     const card = Array.from(
-      this.containerEl.querySelectorAll<HTMLElement>('.doomscroll-card')
+      this.containerEl.querySelectorAll<HTMLElement>('.intelliscroll-card')
     ).find((candidate) => candidate.dataset.path === path);
-    const button = card?.querySelector<HTMLElement>('.doomscroll-card-rate');
+    const button = card?.querySelector<HTMLElement>('.intelliscroll-card-rate');
     if (!button) return;
 
     setIcon(button, RATING_ICONS[rating]);
@@ -1586,7 +1586,7 @@ export class DoomscrollView extends ItemView {
           const preview = this.currentBatch.find(
             (candidate) => candidate.path === path
           );
-          const snippetEl = card.querySelector('.doomscroll-card-snippet');
+          const snippetEl = card.querySelector('.intelliscroll-card-snippet');
           if (preview && snippetEl instanceof HTMLElement) {
             void this.renderSnippet(preview, snippetEl);
           }
@@ -1617,9 +1617,9 @@ export class DoomscrollView extends ItemView {
     const sentinel =
       existingSentinel ??
       container.querySelector<HTMLElement>(
-        '.doomscroll-infinite-scroll-sentinel'
+        '.intelliscroll-infinite-scroll-sentinel'
       ) ??
-      container.createDiv('doomscroll-infinite-scroll-sentinel');
+      container.createDiv('intelliscroll-infinite-scroll-sentinel');
     this.infiniteScrollObserver?.disconnect();
     this.infiniteScrollObserver = new IntersectionObserver(
       (entries) => {
@@ -1684,7 +1684,7 @@ export class DoomscrollView extends ItemView {
       }
 
       const reshuffleSection = container.querySelector(
-        '.doomscroll-reshuffle-section'
+        '.intelliscroll-reshuffle-section'
       );
       for (const preview of nextBatch) {
         const card = this.renderCard(container, preview);
@@ -1736,7 +1736,7 @@ export class DoomscrollView extends ItemView {
       this.renderBatch(
         settingsChanged || indexRefreshed ? undefined : previousOrder
       );
-      this.containerEl.querySelector('.doomscroll-body')?.scrollTo({ top: 0 });
+      this.containerEl.querySelector('.intelliscroll-body')?.scrollTo({ top: 0 });
     } catch (error) {
       console.error('Error refreshing vault index:', error);
     } finally {
@@ -1761,7 +1761,7 @@ export class DoomscrollView extends ItemView {
     this.batchHistoryCursor = previousCursor;
     this.currentBatch = previousBatch;
     this.renderBatch();
-    this.containerEl.querySelector('.doomscroll-body')?.scrollTo({ top: 0 });
+    this.containerEl.querySelector('.intelliscroll-body')?.scrollTo({ top: 0 });
   }
 
   private updateBackButton(): void {
@@ -1773,7 +1773,7 @@ export class DoomscrollView extends ItemView {
   }
 
   private renderBatch(previousOrder?: readonly string[]): void {
-    const body = this.containerEl.querySelector('.doomscroll-body');
+    const body = this.containerEl.querySelector('.intelliscroll-body');
     if (body) {
       this.renderBatchIntoContainer(body as HTMLElement, previousOrder);
     }
@@ -1809,11 +1809,11 @@ export class DoomscrollView extends ItemView {
     }
 
     const buttons = this.containerEl.querySelectorAll<HTMLButtonElement>(
-      '.doomscroll-reshuffle-btn, .doomscroll-reshuffle-end-btn'
+      '.intelliscroll-reshuffle-btn, .intelliscroll-reshuffle-end-btn'
     );
     buttons.forEach((button) => {
       button.disabled = refreshing;
-      if (button.classList.contains('doomscroll-reshuffle-end-btn')) {
+      if (button.classList.contains('intelliscroll-reshuffle-end-btn')) {
         const defaultLabel = button.dataset.defaultLabel ?? t('view.reshuffle.end');
         button.textContent = refreshing ? t('view.status.indexing') : defaultLabel;
       }
@@ -1891,12 +1891,12 @@ export class DoomscrollView extends ItemView {
 
   private setSnippetPreviewSize(snippetEl: HTMLElement): void {
     snippetEl.classList.remove(
-      'doomscroll-card-snippet-size-small',
-      'doomscroll-card-snippet-size-medium',
-      'doomscroll-card-snippet-size-large'
+      'intelliscroll-card-snippet-size-small',
+      'intelliscroll-card-snippet-size-medium',
+      'intelliscroll-card-snippet-size-large'
     );
     snippetEl.classList.add(
-      `doomscroll-card-snippet-size-${this.getPreviewSize()}`
+      `intelliscroll-card-snippet-size-${this.getPreviewSize()}`
     );
   }
 
@@ -1905,8 +1905,8 @@ export class DoomscrollView extends ItemView {
     renderedRoot: HTMLElement,
     simplified: boolean
   ): void {
-    snippetEl.classList.toggle('doomscroll-card-snippet-simple', simplified);
-    snippetEl.classList.toggle('doomscroll-card-snippet-markdown', !simplified);
+    snippetEl.classList.toggle('intelliscroll-card-snippet-simple', simplified);
+    snippetEl.classList.toggle('intelliscroll-card-snippet-markdown', !simplified);
     snippetEl.classList.toggle('markdown-rendered', !simplified);
     this.setSnippetPreviewSize(snippetEl);
 
@@ -1919,7 +1919,7 @@ export class DoomscrollView extends ItemView {
 
     if (clone.querySelector('.dataview, .bases-view, .bases-embed')) {
       const interactionShield = snippetEl.createDiv(
-        'doomscroll-card-snippet-interaction-shield'
+        'intelliscroll-card-snippet-interaction-shield'
       );
       interactionShield.setAttribute('aria-hidden', 'true');
     }
@@ -1927,7 +1927,7 @@ export class DoomscrollView extends ItemView {
 
   private cacheRenderedSnippet(key: string, renderedRoot: HTMLElement): void {
     // Map insertion order gives us a small LRU cache without retaining every
-    // file ever visited during a long-lived Doomscroll session.
+    // file ever visited during a long-lived IntelliScroll session.
     this.renderedSnippetCache.delete(key);
     this.renderedSnippetCache.set(key, renderedRoot);
     while (this.renderedSnippetCache.size > MAX_RENDERED_SNIPPET_CACHE_ENTRIES) {
@@ -1941,7 +1941,7 @@ export class DoomscrollView extends ItemView {
     container: HTMLElement,
     preview: NotePreview
   ): HTMLElement {
-    const card = container.createDiv('doomscroll-card');
+    const card = container.createDiv('intelliscroll-card');
     card.dataset.path = preview.path;
     card.setAttribute('role', 'article');
     card.tabIndex = -1;
@@ -1952,19 +1952,19 @@ export class DoomscrollView extends ItemView {
         isPdfPath(preview.path) ||
         isVideoPath(preview.path));
     if (inlineAttachmentPreview) {
-      card.addClass('doomscroll-card-inline-attachment');
+      card.addClass('intelliscroll-card-inline-attachment');
     } else {
       applyCachedCardSize(card, this.isSimplifiedView(), this.getPreviewSize());
     }
 
     // Title + date row
-    const titleRow = card.createDiv('doomscroll-card-titlerow');
+    const titleRow = card.createDiv('intelliscroll-card-titlerow');
 
     const titleEl = titleRow.createEl('h3');
-    titleEl.className = 'doomscroll-card-title';
+    titleEl.className = 'intelliscroll-card-title';
     titleEl.textContent = preview.title;
 
-    const dateEl = titleRow.createDiv('doomscroll-card-date');
+    const dateEl = titleRow.createDiv('intelliscroll-card-date');
     const date = new Date(preview.mtime);
     dateEl.textContent = date.toLocaleDateString();
 
@@ -1973,17 +1973,22 @@ export class DoomscrollView extends ItemView {
     // deliberately incapable of inventing one — so without this control the
     // 'manual' mode would record nothing at all.
     if (this.shouldOfferExplicitRating()) {
-      this.renderRatingButton(titleRow, preview);
+      // Wrapped in one container rather than added to the row directly. The row
+      // spreads its children apart (`justify-content: space-between`), so two
+      // separate children would strand the buttons at opposite ends of the card
+      // instead of keeping them next to each other.
+      const actions = titleRow.createDiv('intelliscroll-card-actions');
+      this.renderRatingButton(actions, preview);
     }
 
     // Image (lazy loaded)
     if (preview.imagePath) {
       const imageContainer = card.createDiv(
-        'doomscroll-card-image-container'
+        'intelliscroll-card-image-container'
       );
 
       const img = imageContainer.createEl('img');
-      img.className = 'doomscroll-card-image';
+      img.className = 'intelliscroll-card-image';
       img.dataset.src = preview.imagePath;
       img.dataset.notePath = preview.path;
       img.alt = preview.title;
@@ -2003,18 +2008,18 @@ export class DoomscrollView extends ItemView {
     }
 
     if (preview.attachment && isPdfPath(preview.path)) {
-      const pdfContainer = card.createDiv('doomscroll-card-pdf-container');
+      const pdfContainer = card.createDiv('intelliscroll-card-pdf-container');
       const pdf = pdfContainer.createEl('iframe');
-      pdf.className = 'doomscroll-card-pdf';
+      pdf.className = 'intelliscroll-card-pdf';
       pdf.dataset.path = preview.path;
       pdf.title = t('view.card.attachmentPreview', { title: preview.title });
       this.setupPdfLazyLoad(pdf);
     }
 
     if (preview.attachment && isVideoPath(preview.path)) {
-      const videoContainer = card.createDiv('doomscroll-card-video-container');
+      const videoContainer = card.createDiv('intelliscroll-card-video-container');
       const video = videoContainer.createEl('video');
-      video.className = 'doomscroll-card-video';
+      video.className = 'intelliscroll-card-video';
       video.dataset.path = preview.path;
       video.title = t('view.card.attachmentPreview', { title: preview.title });
       video.muted = true;
@@ -2025,7 +2030,7 @@ export class DoomscrollView extends ItemView {
     }
 
     // Snippet is rendered on demand from a bounded Markdown fragment.
-    const snippetEl = card.createDiv('doomscroll-card-snippet');
+    const snippetEl = card.createDiv('intelliscroll-card-snippet');
     this.setSnippetPreviewSize(snippetEl);
     snippetEl.textContent = preview.attachment
       ? attachmentLabel(preview.path)
@@ -2062,14 +2067,14 @@ export class DoomscrollView extends ItemView {
       const value = formatFrontmatterValue(frontmatter[property]);
       if (!value) continue;
 
-      const row = container.createDiv('doomscroll-card-frontmatter-row');
+      const row = container.createDiv('intelliscroll-card-frontmatter-row');
       row.createSpan({
         text: `${property}:`,
-        cls: 'doomscroll-card-frontmatter-property',
+        cls: 'intelliscroll-card-frontmatter-property',
       });
       row.createSpan({
         text: value,
-        cls: 'doomscroll-card-frontmatter-value',
+        cls: 'intelliscroll-card-frontmatter-value',
       });
     }
   }
@@ -2112,7 +2117,7 @@ export class DoomscrollView extends ItemView {
         this.cacheRenderedSnippet(cacheKey, cached);
         if (!isCurrent()) return;
         this.setSnippetContent(snippetEl, cached, simplified);
-        this.cacheCardSize(snippetEl.closest('.doomscroll-card'));
+        this.cacheCardSize(snippetEl.closest('.intelliscroll-card'));
         return;
       }
 
@@ -2152,7 +2157,7 @@ export class DoomscrollView extends ItemView {
       this.cacheRenderedSnippet(cacheKey, prepared);
       if (isCurrent()) {
         this.setSnippetContent(snippetEl, prepared, simplified);
-        this.cacheCardSize(snippetEl.closest('.doomscroll-card'));
+        this.cacheCardSize(snippetEl.closest('.intelliscroll-card'));
       }
     } catch (error) {
       console.error(`Error rendering preview for ${file.path}:`, error);
@@ -2239,10 +2244,10 @@ export class DoomscrollView extends ItemView {
 
     const renders: Promise<void>[] = [];
     this.containerEl
-      .querySelectorAll<HTMLElement>('.doomscroll-card')
+      .querySelectorAll<HTMLElement>('.intelliscroll-card')
       .forEach((card) => {
         const path = card.dataset.path;
-        const snippetEl = card.querySelector('.doomscroll-card-snippet');
+        const snippetEl = card.querySelector('.intelliscroll-card-snippet');
         if (
           !path ||
           excludedPaths.has(path) ||
@@ -2273,23 +2278,23 @@ export class DoomscrollView extends ItemView {
     if (!preview) return;
 
     const card = Array.from(
-      this.containerEl.querySelectorAll<HTMLElement>('.doomscroll-card')
+      this.containerEl.querySelectorAll<HTMLElement>('.intelliscroll-card')
     ).find((candidate) => candidate.dataset.path === file.path);
     if (!card) return;
 
     preview.mtime = file.stat.mtime;
-    const dateEl = card.querySelector('.doomscroll-card-date');
+    const dateEl = card.querySelector('.intelliscroll-card-date');
     if (dateEl instanceof HTMLElement) {
       dateEl.textContent = new Date(file.stat.mtime).toLocaleDateString();
     }
 
-    const snippetEl = card.querySelector('.doomscroll-card-snippet');
+    const snippetEl = card.querySelector('.intelliscroll-card-snippet');
     if (!(snippetEl instanceof HTMLElement)) return;
 
     if (preview.attachment) {
       if (preview.imagePath && isImagePath(file.path)) {
         const image = card.querySelector<HTMLImageElement>(
-          '.doomscroll-card-image'
+          '.intelliscroll-card-image'
         );
         if (image) {
           image.src = '';
@@ -2316,7 +2321,7 @@ export class DoomscrollView extends ItemView {
 
   private async removeDeletedNote(path: string): Promise<void> {
     const card = Array.from(
-      this.containerEl.querySelectorAll<HTMLElement>('.doomscroll-card')
+      this.containerEl.querySelectorAll<HTMLElement>('.intelliscroll-card')
     ).find((candidate) => candidate.dataset.path === path);
 
     const hadPreview = path in this.plugin.data.previews;
@@ -2419,7 +2424,7 @@ export class DoomscrollView extends ItemView {
           imageDimensionCache.delete(oldestKey);
         }
         applyImageDimensions(img, dimensions);
-        this.cacheCardSize(img.closest('.doomscroll-card'));
+        this.cacheCardSize(img.closest('.intelliscroll-card'));
       });
       this.imageLoadListeners.add(img);
     }
@@ -2450,7 +2455,7 @@ export class DoomscrollView extends ItemView {
                   imgEl.src = resolvedSrc;
                 } else {
                   // Couldn't resolve — hide the container instead of showing a broken icon
-                  imgEl.closest('.doomscroll-card-image-container')?.remove();
+                  imgEl.closest('.intelliscroll-card-image-container')?.remove();
                 }
               }
 
@@ -2596,10 +2601,10 @@ export class DoomscrollView extends ItemView {
     preview: NotePreview,
     position: 'before' | 'after'
   ): void {
-    card.querySelector(`.doomscroll-card-frontmatter-${position}`)?.remove();
+    card.querySelector(`.intelliscroll-card-frontmatter-${position}`)?.remove();
 
-    const frontmatterEl = card.createDiv('doomscroll-card-frontmatter');
-    frontmatterEl.classList.add(`doomscroll-card-frontmatter-${position}`);
+    const frontmatterEl = card.createDiv('intelliscroll-card-frontmatter');
+    frontmatterEl.classList.add(`intelliscroll-card-frontmatter-${position}`);
     const properties =
       position === 'before'
         ? this.plugin.getEffectiveDisplay().frontmatterBeforeProps ?? []
@@ -2610,7 +2615,7 @@ export class DoomscrollView extends ItemView {
       return;
     }
 
-    const snippetEl = card.querySelector('.doomscroll-card-snippet');
+    const snippetEl = card.querySelector('.intelliscroll-card-snippet');
     if (position === 'before' && snippetEl) {
       card.insertBefore(frontmatterEl, snippetEl);
     } else {
@@ -2865,7 +2870,7 @@ function isMediaOnlyPreview(preview: NotePreview): boolean {
   );
 }
 
-function parseViewState(state: unknown): DoomscrollViewState | null {
+function parseViewState(state: unknown): IntelliScrollViewState | null {
   if (!isRecord(state)) return null;
 
   const batchPaths = stringArray(state.batchPaths);

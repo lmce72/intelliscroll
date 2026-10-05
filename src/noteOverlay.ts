@@ -1,5 +1,5 @@
 import { MarkdownView, setIcon } from 'obsidian';
-import type DoomscrollPlugin from './main';
+import type IntelliScrollPlugin from './main';
 import {
   ignoreIcon,
   ignoreLabel,
@@ -10,9 +10,9 @@ import {
 } from './rating.ts';
 import { t } from './i18n.ts';
 
-const FLOAT_CLASS = 'doomscroll-note-float';
-const RATE_CLASS = 'doomscroll-note-float-rate';
-const IGNORE_CLASS = 'doomscroll-note-float-ignore';
+const FLOAT_CLASS = 'intelliscroll-note-float';
+const RATE_CLASS = 'intelliscroll-note-float-rate';
+const IGNORE_CLASS = 'intelliscroll-note-float-ignore';
 
 /**
  * A floating control for a note opened from the feed.
@@ -32,7 +32,7 @@ const IGNORE_CLASS = 'doomscroll-note-float-ignore';
  * through Obsidian's `createEl`/`setIcon`.
  */
 export class NoteOverlay {
-  constructor(private readonly plugin: DoomscrollPlugin) {}
+  constructor(private readonly plugin: IntelliScrollPlugin) {}
 
   /**
    * Bring every note pane in line with the current set of feed-opened notes.

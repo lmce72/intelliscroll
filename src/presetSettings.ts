@@ -13,7 +13,7 @@ import {
 import { t } from './i18n.ts';
 // Type-only on purpose: `main.ts` imports `settings.ts`, which delegates here,
 // so a runtime import of the plugin class would close the cycle.
-import type DoomscrollPlugin from './main.ts';
+import type IntelliScrollPlugin from './main.ts';
 import {
   activeAlgorithm,
   activeFilter,
@@ -162,7 +162,7 @@ export const PRESET_CONTROL_KEYS: readonly string[] = [
 /** Read a control value this module owns. Return undefined for unknown keys. */
 export function readPresetControl(
   key: string,
-  plugin: DoomscrollPlugin
+  plugin: IntelliScrollPlugin
 ): unknown {
   const root = plugin.data.settings;
   const library = root.presets;
@@ -212,7 +212,7 @@ export function readPresetControl(
 export async function writePresetControl(
   key: string,
   value: unknown,
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   refresh: () => void
 ): Promise<boolean> {
   const root = plugin.data.settings;
@@ -343,7 +343,7 @@ function groupWord(kind: PresetKind): string {
   }
 }
 
-function activeIdOf(plugin: DoomscrollPlugin, kind: PresetKind): string {
+function activeIdOf(plugin: IntelliScrollPlugin, kind: PresetKind): string {
   const root = plugin.data.settings;
   if (kind === 'filter') return root.activeFilterPresetId;
   if (kind === 'algorithm') return root.activeAlgorithmPresetId;
@@ -352,7 +352,7 @@ function activeIdOf(plugin: DoomscrollPlugin, kind: PresetKind): string {
 }
 
 function activePresetOf(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   kind: PresetKind
 ): AnyPreset {
   const group = groupOf(plugin.data.settings.presets, kind);
@@ -363,7 +363,7 @@ function activePresetOf(
 
 /** A fresh preset of the given group, named `name`. */
 function makeDefaultPreset(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   kind: PresetKind,
   name: string
 ): AnyPreset {
@@ -384,7 +384,7 @@ function makeDefaultPreset(
 }
 
 async function selectKind(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   kind: PresetKind,
   id: string
 ): Promise<void> {
@@ -395,7 +395,7 @@ async function selectKind(
 // ─── Create / rename / duplicate / delete ──────────────────────────────────
 
 async function createPreset(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   refresh: () => void,
   kind: PresetKind
 ): Promise<void> {
@@ -413,13 +413,13 @@ async function createPreset(
     await selectKind(plugin, kind, preset.id);
     refresh();
   } catch (error) {
-    console.error('Doomscroll: could not create preset', error);
+    console.error('IntelliScroll: could not create preset', error);
     new Notice(t('presets.notice.createFailed'));
   }
 }
 
 function renamePreset(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   refresh: () => void,
   kind: PresetKind
 ): void {
@@ -436,7 +436,7 @@ function renamePreset(
           await plugin.saveSettingsAndRefreshViews();
           refresh();
         } catch (error) {
-          console.error('Doomscroll: could not rename preset', error);
+          console.error('IntelliScroll: could not rename preset', error);
           new Notice(t('presets.notice.renameFailed'));
         }
       })();
@@ -445,7 +445,7 @@ function renamePreset(
 }
 
 async function duplicateActivePreset(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   refresh: () => void,
   kind: PresetKind
 ): Promise<void> {
@@ -459,13 +459,13 @@ async function duplicateActivePreset(
     await selectKind(plugin, kind, result.newId);
     refresh();
   } catch (error) {
-    console.error('Doomscroll: could not duplicate preset', error);
+    console.error('IntelliScroll: could not duplicate preset', error);
     new Notice(t('presets.notice.duplicateFailed'));
   }
 }
 
 async function deleteActivePreset(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   refresh: () => void,
   kind: PresetKind
 ): Promise<void> {
@@ -506,7 +506,7 @@ async function deleteActivePreset(
     await plugin.saveSettingsAndRefreshViews();
     refresh();
   } catch (error) {
-    console.error('Doomscroll: could not delete preset', error);
+    console.error('IntelliScroll: could not delete preset', error);
     new Notice(t('presets.notice.deleteFailed'));
   }
 }
@@ -514,7 +514,7 @@ async function deleteActivePreset(
 // ─── Export / import ───────────────────────────────────────────────────────
 
 function exportJsonFor(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   kind: PresetKind | 'library'
 ): string | null {
   const library = plugin.data.settings.presets;
@@ -523,7 +523,7 @@ function exportJsonFor(
 }
 
 async function copyExport(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   kind: PresetKind | 'library'
 ): Promise<void> {
   const json = exportJsonFor(plugin, kind);
@@ -536,13 +536,13 @@ async function copyExport(
     await navigator.clipboard.writeText(json);
     new Notice(t('presets.notice.copied'));
   } catch (error) {
-    console.error('Doomscroll: could not copy export to clipboard', error);
+    console.error('IntelliScroll: could not copy export to clipboard', error);
     new Notice(t('presets.notice.copyFailed'));
   }
 }
 
 async function writeVaultFile(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   filename: string,
   json: string
 ): Promise<void> {
@@ -560,7 +560,7 @@ async function writeVaultFile(
 }
 
 async function saveExport(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   kind: PresetKind | 'library'
 ): Promise<void> {
   const json = exportJsonFor(plugin, kind);
@@ -578,13 +578,13 @@ async function saveExport(
   try {
     await writeVaultFile(plugin, filename, json);
   } catch (error) {
-    console.error('Doomscroll: could not write export file', error);
+    console.error('IntelliScroll: could not write export file', error);
     new Notice(t('presets.notice.exportWriteFailed'));
   }
 }
 
 async function importFromJson(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   refresh: () => void,
   json: string
 ): Promise<void> {
@@ -607,7 +607,7 @@ async function importFromJson(
       t('presets.notice.imported', { filters, algorithms, displays, totals })
     );
   } catch (error) {
-    console.error('Doomscroll: preset import failed', error);
+    console.error('IntelliScroll: preset import failed', error);
     new Notice(t('presets.notice.importFailedGeneric'));
   }
 }
@@ -786,7 +786,7 @@ function heading(name: string, desc?: string): SettingDefinitionItem {
 
 /** One row of New / Rename / Duplicate / Delete for a group. */
 function crudItem(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   refresh: () => void,
   kind: PresetKind
 ): SettingDefinitionItem {
@@ -797,7 +797,7 @@ function crudItem(
     desc,
     render: (setting) => {
       setting.setName(name).setDesc(desc);
-      actionsRow(setting, `doomscroll-preset-manage-${kind}`, (row) => {
+      actionsRow(setting, `intelliscroll-preset-manage-${kind}`, (row) => {
         actionButton(row, t('presets.action.create'), 'mod-cta', () => {
           void createPreset(plugin, refresh, kind);
         });
@@ -816,7 +816,7 @@ function crudItem(
 }
 
 function exportItem(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   kind: PresetKind | 'library'
 ): SettingDefinitionItem {
   const name =
@@ -829,7 +829,7 @@ function exportItem(
     desc,
     render: (setting) => {
       setting.setName(name).setDesc(desc);
-      actionsRow(setting, `doomscroll-preset-export-${kind}`, (row) => {
+      actionsRow(setting, `intelliscroll-preset-export-${kind}`, (row) => {
         actionButton(row, t('presets.export.copy'), undefined, () => {
           void copyExport(plugin, kind);
         });
@@ -842,7 +842,7 @@ function exportItem(
 }
 
 function importItem(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   refresh: () => void
 ): SettingDefinitionItem {
   const name = t('presets.import.name');
@@ -852,7 +852,7 @@ function importItem(
     desc,
     render: (setting) => {
       setting.setName(name).setDesc(desc);
-      actionsRow(setting, 'doomscroll-preset-import', (row) => {
+      actionsRow(setting, 'intelliscroll-preset-import', (row) => {
         actionButton(row, t('presets.action.importJson'), 'mod-cta', () => {
           new ImportPresetsModal(plugin.app, (json) => {
             void importFromJson(plugin, refresh, json);
@@ -865,7 +865,7 @@ function importItem(
 
 /** The declarative settings items for the whole preset manager. */
 export function buildPresetSettings(
-  plugin: DoomscrollPlugin,
+  plugin: IntelliScrollPlugin,
   refresh: () => void
 ): SettingDefinitionItem[] {
   const library = plugin.data.settings.presets;
