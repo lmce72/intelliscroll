@@ -16,6 +16,7 @@ import {
   activeFilter,
   allowsStandaloneFiles,
   defaultLibrary,
+  duplicatePreset,
   fileTypesAllowingStandalone,
   normalizeRule,
 } from './presets';
@@ -28,6 +29,7 @@ import {
   isAlgorithmId,
   isGradingMode,
   isPreviewSize,
+  isRuleMode,
   isSensitivity,
   normalizeMaximumInterval,
   normalizeRetention,
@@ -264,6 +266,7 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         },
       },
       ...this.resurfacingSettings(),
+      ...this.presetSettings(),
     ];
   }
 
@@ -354,6 +357,115 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     }
 
     return items;
+  }
+
+  /**
+   * Preset management: choosing which preset is active, the per-dimension
+   * blacklist/whitelist mode, and copying a preset to make an independent one.
+   *
+   * Deliberately not the full manager yet — creating, renaming and deleting
+   * arbitrary presets, the file-type category editor, total presets and
+   * export/import are still to come. What is here is enough to make the
+   * per-dimension mode reachable and to use copy-on-inherit, which were the two
+   * things the settings page could not do at all.
+   */
+  private presetSettings(): SettingDefinitionItem[] {
+    const library = this.plugin.data.settings.presets;
+    const filter = this.activeFilterPreset();
+
+    const filterOptions: Record<string, string> = {};
+    for (const preset of library.filters) filterOptions[preset.id] = preset.name;
+
+    const modeOptions: Record<string, string> = {
+      blacklist: 'Exclude these',
+      whitelist: 'Only these',
+    };
+
+    const items: SettingDefinitionItem[] = [
+      {
+        name: 'Presets',
+        render: (setting) => {
+          setting.setName('Presets').setHeading();
+        },
+      },
+      {
+        name: 'Filter preset',
+        desc: 'Which set of filters is in force. Editing the filter settings below changes this preset.',
+        control: {
+          type: 'dropdown',
+          key: 'activeFilterPreset',
+          options: filterOptions,
+        },
+      },
+      {
+        name: 'Folders',
+        desc: 'How the excluded-folders list is read',
+        control: {
+          type: 'dropdown',
+          key: 'folderMode',
+          options: modeOptions,
+        },
+      },
+      {
+        name: 'Tags',
+        desc: 'How the excluded-tags list is read',
+        control: { type: 'dropdown', key: 'tagMode', options: modeOptions },
+      },
+      {
+        name: 'Filename patterns',
+        desc: 'How the excluded-patterns list is read',
+        control: { type: 'dropdown', key: 'globMode', options: modeOptions },
+      },
+      {
+        name: 'File types',
+        desc: 'How the file-type list is read',
+        control: { type: 'dropdown', key: 'fileTypeMode', options: modeOptions },
+      },
+      {
+        name: 'Copy this filter preset',
+        desc: 'Make an independent copy. Later changes to this one will not affect the copy, and vice versa.',
+        render: (setting) => {
+          setting.setName('Copy this filter preset');
+          setting.setDesc(
+            'Make an independent copy. Later changes to this one will not affect the copy, and vice versa.'
+          );
+          const existing = setting.settingEl.querySelector(
+            '.doomscroll-copy-preset-btn'
+          );
+          const button =
+            existing instanceof HTMLElement
+              ? existing
+              : setting.controlEl.createEl('button', {
+                  cls: 'doomscroll-copy-preset-btn',
+                });
+          button.setText('Duplicate');
+          button.onclick = () => {
+            void this.duplicateActiveFilterPreset();
+          };
+        },
+      },
+    ];
+
+    // Only meaningful while something is scheduled.
+    void filter;
+    return items;
+  }
+
+  private async duplicateActiveFilterPreset(): Promise<void> {
+    const library = this.plugin.data.settings.presets;
+    const result = duplicatePreset(
+      library,
+      'filter',
+      this.plugin.data.settings.activeFilterPresetId
+    );
+    if (!result) return;
+
+    // Switch to the copy, which is what "inherit as a new preset" should mean:
+    // you asked for a variant, so you get to edit it immediately.
+    this.plugin.data.settings.activeFilterPresetId = result.newId;
+    this.plugin.data.settings.activeTotalPresetId = null;
+    await this.plugin.saveSettingsAndRefreshViews();
+    this.refreshDeclarativeSettings();
   }
 
   /** The active preset of each group — what the settings page edits. */
@@ -462,6 +574,16 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         return settings.fsrsTunables.maximumInterval;
       case 'enableFuzz':
         return settings.fsrsTunables.enableFuzz;
+      case 'activeFilterPreset':
+        return this.plugin.data.settings.activeFilterPresetId;
+      case 'folderMode':
+        return this.activeFilterPreset().folders.mode;
+      case 'tagMode':
+        return this.activeFilterPreset().tags.mode;
+      case 'globMode':
+        return this.activeFilterPreset().globs.mode;
+      case 'fileTypeMode':
+        return this.activeFilterPreset().fileTypes.mode;
       default:
         return undefined;
     }
@@ -580,6 +702,28 @@ export class DoomscrollSettingTab extends PluginSettingTab {
           ...algorithm.fsrsTunables,
           enableFuzz: value,
         };
+        break;
+      case 'activeFilterPreset':
+        if (typeof value !== 'string') return;
+        // Already saves and refreshes, and clears the composite itself.
+        await this.plugin.selectPreset('filter', value);
+        this.refreshDeclarativeSettings();
+        return;
+      case 'folderMode':
+        if (!isRuleMode(value)) return;
+        filter.folders = { ...filter.folders, mode: value };
+        break;
+      case 'tagMode':
+        if (!isRuleMode(value)) return;
+        filter.tags = { ...filter.tags, mode: value };
+        break;
+      case 'globMode':
+        if (!isRuleMode(value)) return;
+        filter.globs = { ...filter.globs, mode: value };
+        break;
+      case 'fileTypeMode':
+        if (!isRuleMode(value)) return;
+        filter.fileTypes = { ...filter.fileTypes, mode: value };
         break;
       default:
         return;

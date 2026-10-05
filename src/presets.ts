@@ -315,7 +315,14 @@ export function normalizeFileTypes(
 
 // ─── Cloning (copy-on-inherit) ─────────────────────────────────────────────
 
-function uniqueName(taken: readonly string[], base: string): string {
+/**
+ * A name not already in `taken`, suffixing a counter when needed.
+ *
+ * Exported because import needs the identical rule: two places disagreeing
+ * about how names are made unique would produce duplicates the UI cannot tell
+ * apart.
+ */
+export function uniqueName(taken: readonly string[], base: string): string {
   if (!taken.includes(base)) return base;
   for (let n = 2; n < 1000; n++) {
     const candidate = `${base} ${n}`;

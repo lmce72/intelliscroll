@@ -54,8 +54,10 @@ note file is modified — that is the property the test suite guards hardest.
 
 <img src="https://github.com/user-attachments/assets/bbb240b2-e7bd-4ee7-af4e-b9f583d74629" height="400px" alt="The feed on mobile" />
 
-- **Four scheduling algorithms** — Off, FSRS-6, SM-2, Leitner — chosen in
-  settings, overridable from the feed header for a single session
+- **Four scheduling algorithms** — Off, FSRS-6, SM-2, Leitner — chosen in an
+  algorithm preset, overridable from the feed header for a single session
+- **Named presets** for filters, algorithms, and display, plus a total preset
+  that names one preset from each group
 - **Per-card rating** when you want to correct the schedule by hand
 - Shuffled card feed, not another list sorted by modification date
 - Manual reshuffle when the current batch is not doing it for you
@@ -64,7 +66,7 @@ note file is modified — that is the property the test suite guards hardest.
   unless there are not enough unseen notes
 - 30-minute cooldown before a note can appear again
 - Back button for the batch you should not have reshuffled
-- Filters for folders, tags, and filename patterns
+- Filters for folders, tags, filename patterns, search queries, and file types
 - Cover images from frontmatter, Markdown, or HTML
 - Standalone vault attachments, including images that are not linked from a note
 - Markdown previews with an optional Simplified view
@@ -97,7 +99,40 @@ Doomscroll rather than replacing it.
 
 ## Settings
 
-### Resurfacing
+Settings are organised as **named presets** across four groups. A group can hold
+any number of presets, and each group has one active preset. A **filter preset**
+decides which notes are eligible for the feed, an **algorithm preset** decides
+how they are scheduled, a **display preset** decides how they look, and a
+**total preset** names one preset from each of the other three.
+
+### Filter presets
+
+Which notes are eligible for the feed.
+
+- **Folders**, **tags**, and **filename patterns** (globs): each dimension is
+  independently either a whitelist ("only these") or a blacklist ("exclude
+  these"). The dimensions routinely want opposite treatment, so folders can be
+  "only these" while tags are "exclude these"
+- **Search query**: Filter notes with Obsidian-style search syntax, such as
+  `tag:#work` or `[status:Draft]`
+- **File types**: `image`, `document` (PDF, EPUB, docx…), `video`, `audio`,
+  `other`, and `note` for Markdown notes. Documents and images are deliberately
+  separate categories
+- **Include media-only notes**: Show Markdown notes containing only images or
+  other attachments (default: on)
+
+Hiding standalone files keeps notes in the feed. The file-type rule is a
+blacklist of the standalone kinds, not an empty whitelist, so turning it off
+removes attachments without removing notes. This replaces the old "show
+non-Markdown files" toggle.
+
+File-type filtering is path-based, so a Markdown note that *embeds* a PDF
+classifies as `note`, not `document`. It therefore targets standalone files —
+which is where attachments actually appear as feed items.
+
+### Algorithm presets
+
+The scheduling engine.
 
 - **Algorithm**: Off, FSRS-6, SM-2 or Leitner (default: Off, which reproduces
   the original shuffled feed exactly)
@@ -110,26 +145,41 @@ Doomscroll rather than replacing it.
 - **Fuzz due dates** (FSRS): Spread due dates slightly so notes do not all
   return on the same day
 
-### Feed
+### Display presets
 
-- **Batch size** (5 to 50): How many cards to show per reshuffle (default: 20)
-- **Infinite scrolling**: Load more notes automatically as you reach the end;
-  when enabled, batch size is fixed for incremental loading
-- **Include media-only notes**: Show Markdown notes containing only images or
-  other attachments (default: on)
-- **Show non-Markdown files**: Show standalone vault files such as images,
-  PDFs, and other attachments (default: on)
+How the feed looks and where a note opens.
+
 - **Simplified view**: Show concise previews with readable tables, links, and
   code; turn off for full Markdown formatting (default: on)
+- **Reduce animation**: Turn off card and transition animations
 - **Preview size**: Show a small, medium, or large text preview (default:
   medium)
-- **Exclude folders**: Folder paths to skip (one per line)
-- **Exclude tags**: Tag names to skip without # (one per line)
-- **Exclude filename patterns**: Patterns to skip (one per line, e.g., `_*` for drafts)
-- **Search query**: Filter notes with Obsidian-style search syntax, such as `tag:#work` or `[status:Draft]`
-- **Frontmatter image properties**: Property names to check for images (default: `cover`, `image`, `banner`)
-- **Frontmatter properties before preview**: Property names to render before the note body (one per line)
-- **Frontmatter properties after preview**: Property names to render after the note body (one per line)
+- **Where a note opens**: The pane a card opens into
+- **Frontmatter properties before preview** / **after preview**: Property names
+  to render before or after the note body (one per line)
+- **Frontmatter image properties**: Property names to check for images (default:
+  `cover`, `image`, `banner`)
+
+### Total presets
+
+A total preset is a composite: it names one preset from each of the filter,
+algorithm, and display groups.
+
+### How presets behave
+
+- **Inheritance is copy-on-inherit.** Copying a preset produces a fully
+  independent one, and later edits to either copy do not affect the other.
+  Copying a *total* preset also copies the three sub-presets it references, so
+  the copy stays independent there too.
+- **Migration.** Existing flat settings are migrated into a single preset named
+  `Default` in each group, and a `Default` total is selected. The old flat
+  fields are then removed, so **downgrading to an older build loses your
+  configuration**.
+- **Storage.** Presets live in `data.json`, which is gitignored, so they do not
+  travel with the repository or sync via git. (Export/import is planned.)
+- **No preset lists yet.** Creating, renaming, and deleting presets from the
+  settings page, the file-type category picker, the total-preset UI, and the
+  export/import buttons are still to come.
 
 ## Usage
 
@@ -137,12 +187,16 @@ Doomscroll rather than replacing it.
 2. Click any card to open the note in a new pane
 3. Click the refresh icon when you want a new batch
 4. Click the back arrow to return to the previous batch
-5. Click the sliders icon to change the algorithm, grading or FSRS parameters
+5. Click the filter button in the feed header to switch filter presets, or
+   adjust the current filter. A temporary change lasts for the session only and
+   is discarded when the feed is reopened; the save button turns it into a named
+   preset
+6. Click the sliders icon to change the algorithm, grading or FSRS parameters
    on the spot — these last for the session only and are discarded when the
    feed is reopened, so it is safe to experiment
-6. With resurfacing on and grading not set to automatic-only, each card carries
+7. With resurfacing on and grading not set to automatic-only, each card carries
    a small gauge icon for rating it by hand
-7. Adjust settings to tune which notes appear
+8. Select your presets in settings to tune which notes appear and how
 
 ## Development
 
