@@ -60,27 +60,225 @@ export const REQUEST_RETENTION_MAX = 0.97;
 export const MAXIMUM_INTERVAL_MIN = 1;
 export const MAXIMUM_INTERVAL_MAX = 3650;
 
-export interface PluginSettings {
-  batchSize: number;
-  infiniteScroll: boolean;
-  includeMediaOnlyNotes: boolean;
-  showNonMarkdownFiles: boolean;
-  simplifiedView: boolean;
-  reduceAnimations: boolean;
-  previewSize: PreviewSize;
-  openNoteBehavior: OpenNoteBehavior;
-  excludeFolders: string[];
-  excludeTags: string[];
-  excludeGlobs: string[];
+// ─── Presets ───────────────────────────────────────────────────────────────
+// Configuration is stored as named presets rather than flat settings, so a
+// user can switch between whole configurations and try one without committing
+// it. Presets are pure configuration and live in data.json (the sidecar store
+// is for per-note scheduling state).
+
+/** Whether a rule's values are excluded or are the only things allowed. */
+export type RuleMode = 'blacklist' | 'whitelist';
+
+/**
+ * One filter dimension: a set of values plus whether they exclude or include.
+ *
+ * The mode is per dimension rather than per preset, because the dimensions
+ * routinely want opposite treatment — "only these folders" while excluding
+ * some tags is a normal configuration.
+ */
+export interface FilterRule {
+  mode: RuleMode;
+  values: string[];
+}
+
+/**
+ * Category of a *standalone non-Markdown* file. Markdown notes are not a file
+ * category; a note that contains only an attachment is governed by
+ * `includeMediaOnlyNotes` instead, which is a view-time toggle that does not
+ * force a re-index.
+ */
+export type FileCategory = 'image' | 'document' | 'video' | 'audio' | 'other';
+
+/**
+ * What `fileCategory()` can return: the five file categories plus `note`.
+ *
+ * The file-type rule accepts `note` as a value so that "only images" can mean
+ * only images. Without it, Markdown notes would always pass the rule and the
+ * whitelist could never narrow to attachments alone.
+ */
+export type FilterableKind = FileCategory | 'note';
+
+export interface FileTypeRule {
+  mode: RuleMode;
+  values: FilterableKind[];
+}
+
+export interface FilterPreset {
+  id: string;
+  name: string;
+  folders: FilterRule;
+  tags: FilterRule;
+  globs: FilterRule;
   searchQuery: string;
-  frontmatterImageProps: string[];
-  frontmatterBeforeProps: string[];
-  frontmatterAfterProps: string[];
-  /** Scheduling engine. `off` = the original shuffled feed. */
+  /** Replaces the old `showNonMarkdownFiles`, which this subsumes exactly. */
+  fileTypes: FileTypeRule;
+  /** Deliberately a live view-time toggle, not an index-time rule. */
+  includeMediaOnlyNotes: boolean;
+}
+
+export interface AlgorithmPreset {
+  id: string;
+  name: string;
   algorithm: AlgorithmId;
   gradingMode: GradingMode;
   sensitivity: Sensitivity;
   fsrsTunables: FsrsTunables;
+}
+
+export interface DisplayPreset {
+  id: string;
+  name: string;
+  simplifiedView: boolean;
+  reduceAnimations: boolean;
+  previewSize: PreviewSize;
+  openNoteBehavior: OpenNoteBehavior;
+  frontmatterImageProps: string[];
+  frontmatterBeforeProps: string[];
+  frontmatterAfterProps: string[];
+}
+
+/** A composite: one preset from each group, referenced by id. */
+export interface TotalPreset {
+  id: string;
+  name: string;
+  filterId: string;
+  algorithmId: string;
+  displayId: string;
+}
+
+export interface PresetLibrary {
+  filters: FilterPreset[];
+  algorithms: AlgorithmPreset[];
+  displays: DisplayPreset[];
+  totals: TotalPreset[];
+}
+
+export const RULE_MODES: readonly RuleMode[] = ['blacklist', 'whitelist'];
+export const FILE_CATEGORIES: readonly FileCategory[] = [
+  'image',
+  'document',
+  'video',
+  'audio',
+  'other',
+];
+
+export function isRuleMode(value: unknown): value is RuleMode {
+  return value === 'blacklist' || value === 'whitelist';
+}
+
+export function isFileCategory(value: unknown): value is FileCategory {
+  return (
+    value === 'image' ||
+    value === 'document' ||
+    value === 'video' ||
+    value === 'audio' ||
+    value === 'other'
+  );
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.every((item) => typeof item === 'string')
+  );
+}
+
+export function isFilterRule(value: unknown): value is FilterRule {
+  if (typeof value !== 'object' || value === null) return false;
+  const rule = value as Partial<FilterRule>;
+  return isRuleMode(rule.mode) && isStringArray(rule.values);
+}
+
+export function isFilterableKind(value: unknown): value is FilterableKind {
+  return value === 'note' || isFileCategory(value);
+}
+
+export function isFileTypeRule(value: unknown): value is FileTypeRule {
+  if (typeof value !== 'object' || value === null) return false;
+  const rule = value as Partial<FileTypeRule>;
+  return (
+    isRuleMode(rule.mode) &&
+    Array.isArray(rule.values) &&
+    rule.values.every((item) => isFilterableKind(item))
+  );
+}
+
+export function isFilterPreset(value: unknown): value is FilterPreset {
+  if (typeof value !== 'object' || value === null) return false;
+  const preset = value as Partial<FilterPreset>;
+  return (
+    typeof preset.id === 'string' &&
+    preset.id.length > 0 &&
+    typeof preset.name === 'string' &&
+    isFilterRule(preset.folders) &&
+    isFilterRule(preset.tags) &&
+    isFilterRule(preset.globs) &&
+    typeof preset.searchQuery === 'string' &&
+    isFileTypeRule(preset.fileTypes) &&
+    typeof preset.includeMediaOnlyNotes === 'boolean'
+  );
+}
+
+export function isAlgorithmPreset(value: unknown): value is AlgorithmPreset {
+  if (typeof value !== 'object' || value === null) return false;
+  const preset = value as Partial<AlgorithmPreset>;
+  return (
+    typeof preset.id === 'string' &&
+    preset.id.length > 0 &&
+    typeof preset.name === 'string' &&
+    isAlgorithmId(preset.algorithm) &&
+    isGradingMode(preset.gradingMode) &&
+    isSensitivity(preset.sensitivity) &&
+    typeof preset.fsrsTunables === 'object' &&
+    preset.fsrsTunables !== null
+  );
+}
+
+export function isDisplayPreset(value: unknown): value is DisplayPreset {
+  if (typeof value !== 'object' || value === null) return false;
+  const preset = value as Partial<DisplayPreset>;
+  return (
+    typeof preset.id === 'string' &&
+    preset.id.length > 0 &&
+    typeof preset.name === 'string' &&
+    typeof preset.simplifiedView === 'boolean' &&
+    typeof preset.reduceAnimations === 'boolean' &&
+    isPreviewSize(preset.previewSize) &&
+    (preset.openNoteBehavior === 'tab' ||
+      preset.openNoteBehavior === 'reuse' ||
+      preset.openNoteBehavior === 'window') &&
+    isStringArray(preset.frontmatterImageProps) &&
+    isStringArray(preset.frontmatterBeforeProps) &&
+    isStringArray(preset.frontmatterAfterProps)
+  );
+}
+
+export function isTotalPreset(value: unknown): value is TotalPreset {
+  if (typeof value !== 'object' || value === null) return false;
+  const preset = value as Partial<TotalPreset>;
+  return (
+    typeof preset.id === 'string' &&
+    preset.id.length > 0 &&
+    typeof preset.name === 'string' &&
+    typeof preset.filterId === 'string' &&
+    typeof preset.algorithmId === 'string' &&
+    typeof preset.displayId === 'string'
+  );
+}
+
+export interface PluginSettings {
+  /**
+   * Feed mechanics. These are not part of any preset group: they do not affect
+   * which notes are eligible, only how many arrive at once.
+   */
+  batchSize: number;
+  infiniteScroll: boolean;
+
+  presets: PresetLibrary;
+  activeFilterPresetId: string;
+  activeAlgorithmPresetId: string;
+  activeDisplayPresetId: string;
+  /** When set, this drives the three above. Editing any group clears it. */
+  activeTotalPresetId: string | null;
 }
 
 export function isAlgorithmId(value: unknown): value is AlgorithmId {

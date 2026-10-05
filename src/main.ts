@@ -1,15 +1,22 @@
 import { Plugin, normalizePath } from 'obsidian';
 import {
-  FSRS_DEFAULT_TUNABLES,
-  isAlgorithmId,
-  isGradingMode,
-  isPreviewSize,
-  isSensitivity,
-  normalizeMaximumInterval,
   normalizeRetention,
-  PluginData,
-  StoredNotePreview,
+  type AlgorithmPreset,
+  type DisplayPreset,
+  type FilterPreset,
+  type PluginData,
+  type PluginSettings,
+  type StoredNotePreview,
 } from './types';
+import {
+  activeAlgorithm,
+  activeDisplay,
+  activeFilter,
+  ensureLibrary,
+  idsForTotal,
+  libraryFromUnknownLegacy,
+  resolveActiveIds,
+} from './presets';
 import { DEFAULT_SETTINGS, DoomscrollSettingTab } from './settings';
 import { Indexer } from './indexer';
 import { SrsStore, logSrsError } from './srsLog';
@@ -25,36 +32,44 @@ export default class DoomscrollPlugin extends Plugin {
   private settingsRefreshTimer: number | null = null;
 
   async onload(): Promise<void> {
-    type LegacySettings = PluginData['settings'] & {
-      frontmatterDisplayProps?: unknown;
-    };
     type LoadedPluginData = Omit<PluginData, 'settings'> & {
-      settings?: LegacySettings;
+      settings?: Record<string, unknown>;
     };
 
     // Load data
     const loadedData = (await this.loadData()) as LoadedPluginData | null;
-    const loadedSettings = loadedData?.settings;
-    const legacyDisplayProps = Array.isArray(
-      loadedSettings?.frontmatterDisplayProps
-    )
-      ? loadedSettings.frontmatterDisplayProps.filter(
-          (property): property is string => typeof property === 'string'
-        )
-      : [];
-    const hasBeforeProps = Array.isArray(loadedSettings?.frontmatterBeforeProps);
-    const hasAfterProps = Array.isArray(loadedSettings?.frontmatterAfterProps);
-    const settings = {
-      ...DEFAULT_SETTINGS,
-      ...loadedSettings,
-      frontmatterBeforeProps: hasBeforeProps
-        ? loadedSettings?.frontmatterBeforeProps ?? []
-        : [],
-      frontmatterAfterProps: hasAfterProps
-        ? loadedSettings?.frontmatterAfterProps ?? []
-        : legacyDisplayProps,
+    const loadedSettings: Record<string, unknown> =
+      loadedData?.settings && typeof loadedData.settings === 'object'
+        ? loadedData.settings
+        : {};
+
+    let migrated = false;
+
+    // Presets replaced the flat settings this fork used previously. Data with
+    // no `presets` object is migrated from those flat fields into a single
+    // "Default" preset, so an upgrade preserves the user's configuration.
+    // `ensureLibrary` additionally repairs anything malformed, since this file
+    // is hand-editable.
+    const hadPresets = loadedSettings.presets !== undefined;
+    const presets = ensureLibrary(
+      hadPresets ? loadedSettings.presets : libraryFromUnknownLegacy(loadedSettings)
+    );
+    if (!hadPresets) migrated = true;
+
+    const settings: PluginSettings = {
+      batchSize:
+        typeof loadedSettings.batchSize === 'number' &&
+        Number.isFinite(loadedSettings.batchSize) &&
+        loadedSettings.batchSize > 0
+          ? loadedSettings.batchSize
+          : DEFAULT_SETTINGS.batchSize,
+      infiniteScroll:
+        typeof loadedSettings.infiniteScroll === 'boolean'
+          ? loadedSettings.infiniteScroll
+          : DEFAULT_SETTINGS.infiniteScroll,
+      presets,
+      ...resolveActiveIds(presets, loadedSettings),
     };
-    delete (settings as LegacySettings).frontmatterDisplayProps;
 
     this.data = {
       settings,
@@ -67,13 +82,6 @@ export default class DoomscrollPlugin extends Plugin {
     // (duplicating the map key and an unused field) and kept imagePath as
     // an explicit null. Strip them so old vaults' data.json shrinks; the
     // index-format migration below also refreshes cached metadata once.
-    let migrated =
-      loadedData?.settings !== undefined &&
-      (!hasBeforeProps ||
-        !hasAfterProps ||
-        Boolean(
-          loadedSettings && 'frontmatterDisplayProps' in loadedSettings
-        ));
     type LegacyPreview = Omit<StoredNotePreview, 'imagePath'> & {
       path?: unknown;
       title?: unknown;
@@ -116,87 +124,6 @@ export default class DoomscrollPlugin extends Plugin {
       }
     }
 
-    const normalizedExcludedFolders = Array.from(
-      new Set(
-        this.data.settings.excludeFolders
-          .map((folder) => normalizePath(folder.trim()).replace(/\/+$/, ''))
-          .filter((folder) => folder.length > 0 && folder !== '.')
-      )
-    );
-    if (
-      JSON.stringify(normalizedExcludedFolders) !==
-      JSON.stringify(this.data.settings.excludeFolders)
-    ) {
-      this.data.settings.excludeFolders = normalizedExcludedFolders;
-      migrated = true;
-    }
-
-    if (!loadedData?.settings || !('simplifiedView' in loadedData.settings)) {
-      migrated = true;
-    }
-
-    if (!loadedData?.settings || !('infiniteScroll' in loadedData.settings)) {
-      migrated = true;
-    }
-
-    if (!loadedData?.settings || !('reduceAnimations' in loadedData.settings)) {
-      migrated = true;
-    }
-
-    if (!isPreviewSize(this.data.settings.previewSize)) {
-      this.data.settings.previewSize = 'medium';
-      migrated = true;
-    }
-
-    // Resurfacing settings are read from disk and are also hand-editable, so
-    // they get the same treatment as the older settings rather than being
-    // trusted. A retention value outside its range would otherwise silently
-    // produce nonsense intervals.
-    if (!isAlgorithmId(this.data.settings.algorithm)) {
-      this.data.settings.algorithm = DEFAULT_SETTINGS.algorithm;
-      migrated = true;
-    }
-
-    if (!isGradingMode(this.data.settings.gradingMode)) {
-      this.data.settings.gradingMode = DEFAULT_SETTINGS.gradingMode;
-      migrated = true;
-    }
-
-    if (!isSensitivity(this.data.settings.sensitivity)) {
-      this.data.settings.sensitivity = DEFAULT_SETTINGS.sensitivity;
-      migrated = true;
-    }
-
-    const storedTunables = this.data.settings.fsrsTunables;
-    if (!storedTunables || typeof storedTunables !== 'object') {
-      this.data.settings.fsrsTunables = { ...FSRS_DEFAULT_TUNABLES };
-      migrated = true;
-    } else {
-      const requestRetention = normalizeRetention(
-        storedTunables.requestRetention
-      );
-      const maximumInterval = normalizeMaximumInterval(
-        storedTunables.maximumInterval
-      );
-      const enableFuzz =
-        typeof storedTunables.enableFuzz === 'boolean'
-          ? storedTunables.enableFuzz
-          : FSRS_DEFAULT_TUNABLES.enableFuzz;
-
-      if (
-        requestRetention !== storedTunables.requestRetention ||
-        maximumInterval !== storedTunables.maximumInterval ||
-        enableFuzz !== storedTunables.enableFuzz
-      ) {
-        this.data.settings.fsrsTunables = {
-          requestRetention,
-          maximumInterval,
-          enableFuzz,
-        };
-        migrated = true;
-      }
-    }
-
     if (this.data.indexFormatVersion !== INDEX_FORMAT_VERSION) {
       // Rebuild all cached metadata once. This also repairs data written by
       // the intermediate on-demand-preview migration, which removed legacy
@@ -212,8 +139,14 @@ export default class DoomscrollPlugin extends Plugin {
       await this.saveSettings();
     }
 
-    // Instantiate indexer
-    this.indexer = new Indexer(this.app, this.data);
+    // Instantiate indexer. The filter is injected rather than read from
+    // `data.settings` so that a session override made in the feed reaches the
+    // index — filters are applied at index time, so the view alone could not
+    // trigger the rebuild they require. Injection also keeps the indexer
+    // testable without a full plugin.
+    this.indexer = new Indexer(this.app, this.data, () =>
+      this.getEffectiveFilter()
+    );
 
     // Resurfacing state lives beside the plugin, not in data.json: appending a
     // line is O(1), whereas data.json is rewritten in full on every change and
@@ -276,6 +209,132 @@ export default class DoomscrollPlugin extends Plugin {
       active: true,
     });
     await this.app.workspace.revealLeaf(leaf);
+  }
+
+  // ─── Effective configuration ─────────────────────────────────────────────
+  //
+  // The single source of truth for "which configuration is in force". Both the
+  // indexer and the view read through these, so an override made in the feed is
+  // visible to the index too. That matters because filters are applied at index
+  // time: the view alone cannot trigger the rebuild they require.
+  //
+  // Session overrides are deliberately never persisted, so reopening the feed
+  // returns to the saved presets.
+
+  private sessionFilter: FilterPreset | null = null;
+  private sessionAlgorithm: AlgorithmPreset | null = null;
+  private sessionDisplay: DisplayPreset | null = null;
+
+  getEffectiveFilter(): FilterPreset {
+    if (this.sessionFilter) return this.sessionFilter;
+    return activeFilter(
+      this.data.settings.presets,
+      this.data.settings.activeFilterPresetId
+    );
+  }
+
+  getEffectiveAlgorithm(): AlgorithmPreset {
+    if (this.sessionAlgorithm) return this.sessionAlgorithm;
+    return activeAlgorithm(
+      this.data.settings.presets,
+      this.data.settings.activeAlgorithmPresetId
+    );
+  }
+
+  getEffectiveDisplay(): DisplayPreset {
+    if (this.sessionDisplay) return this.sessionDisplay;
+    return activeDisplay(
+      this.data.settings.presets,
+      this.data.settings.activeDisplayPresetId
+    );
+  }
+
+  hasSessionOverrides(): boolean {
+    return (
+      this.sessionFilter !== null ||
+      this.sessionAlgorithm !== null ||
+      this.sessionDisplay !== null
+    );
+  }
+
+  hasSessionFilterOverride(): boolean {
+    return this.sessionFilter !== null;
+  }
+
+  applySessionFilter(patch: Partial<FilterPreset>): void {
+    this.sessionFilter = {
+      ...structuredClone(this.getEffectiveFilter()),
+      ...patch,
+    };
+  }
+
+  applySessionAlgorithm(patch: Partial<AlgorithmPreset>): void {
+    this.sessionAlgorithm = {
+      ...structuredClone(this.getEffectiveAlgorithm()),
+      ...patch,
+    };
+  }
+
+  applySessionDisplay(patch: Partial<DisplayPreset>): void {
+    this.sessionDisplay = {
+      ...structuredClone(this.getEffectiveDisplay()),
+      ...patch,
+    };
+  }
+
+  clearSessionOverrides(): void {
+    this.sessionFilter = null;
+    this.sessionAlgorithm = null;
+    this.sessionDisplay = null;
+  }
+
+  /** Switch which saved preset is active. Leaves any session override alone. */
+  async selectPreset(
+    kind: 'filter' | 'algorithm' | 'display',
+    id: string
+  ): Promise<void> {
+    if (kind === 'filter') this.data.settings.activeFilterPresetId = id;
+    else if (kind === 'algorithm') this.data.settings.activeAlgorithmPresetId = id;
+    else this.data.settings.activeDisplayPresetId = id;
+
+    // Choosing a group by hand means the composite no longer describes what is
+    // in force.
+    this.data.settings.activeTotalPresetId = null;
+    await this.saveSettingsAndRefreshViews();
+  }
+
+  async selectTotalPreset(id: string | null): Promise<void> {
+    if (id === null) {
+      this.data.settings.activeTotalPresetId = null;
+      await this.saveSettingsAndRefreshViews();
+      return;
+    }
+
+    const ids = idsForTotal(this.data.settings.presets, id);
+    if (!ids) return;
+    Object.assign(this.data.settings, ids, { activeTotalPresetId: id });
+    await this.saveSettingsAndRefreshViews();
+  }
+
+  /**
+   * Promote the temporary filter override into a saved preset.
+   *
+   * This is what the feed's save button does: an experiment made in the feed
+   * becomes something the user can return to.
+   */
+  async saveSessionFilterAsPreset(name: string): Promise<string | null> {
+    if (!this.sessionFilter) return null;
+    const preset: FilterPreset = {
+      ...structuredClone(this.sessionFilter),
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+    };
+    this.data.settings.presets.filters.push(preset);
+    this.data.settings.activeFilterPresetId = preset.id;
+    this.data.settings.activeTotalPresetId = null;
+    this.sessionFilter = null;
+    await this.saveSettingsAndRefreshViews();
+    return preset.id;
   }
 
   async saveSettings(): Promise<void> {

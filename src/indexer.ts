@@ -1,26 +1,42 @@
 import { App, TFile } from 'obsidian';
-import { PluginData, StoredNotePreview } from './types';
+import { PluginData, StoredNotePreview, type FilterPreset } from './types';
 import {
   extractImage,
   hasMediaEmbed,
   hasTextualPreviewContent,
 } from './extract';
-import { isImagePath } from './media';
-import { compileGlob } from './glob';
+import { fileCategory } from './media';
 import { matchesSearchQuery } from './search';
+import { compileFilter } from './filtering';
 
 const INDEX_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * The configuration the index depends on.
+ *
+ * Injected rather than read from `data.settings` so that a session override
+ * made in the feed reaches the index — filtering happens here, at index time,
+ * and the view alone could not trigger the rebuild a filter change requires.
+ * It also means the indexer can be tested without a plugin.
+ */
+export interface IndexerConfig {
+  filter: FilterPreset;
+  /** Lives in the display preset, but decides how images are extracted. */
+  frontmatterImageProps: string[];
+}
 
 export class Indexer {
   app: App;
   data: PluginData;
+  private getConfig: () => IndexerConfig;
   private lastRefreshStartedAt = 0;
   private lastIndexedSettingsKey: string | null = null;
   private refreshPromise: Promise<void> | null = null;
 
-  constructor(app: App, data: PluginData) {
+  constructor(app: App, data: PluginData, getConfig: () => IndexerConfig) {
     this.app = app;
     this.data = data;
+    this.getConfig = getConfig;
   }
 
   markDirty(): void {
@@ -62,70 +78,46 @@ export class Indexer {
     }
   }
 
+  /**
+   * Changing this forces a full rebuild, which sweeps notes that no longer
+   * match out of `data.previews`.
+   *
+   * Only index-affecting configuration belongs here. `includeMediaOnlyNotes`
+   * is applied in the view and is deliberately absent, so toggling it stays
+   * cheap.
+   */
   private getIndexSettingsKey(): string {
+    const config = this.getConfig();
     return JSON.stringify({
-      excludeFolders: this.data.settings.excludeFolders,
-      excludeTags: this.data.settings.excludeTags,
-      excludeGlobs: this.data.settings.excludeGlobs,
-      searchQuery: this.data.settings.searchQuery,
-      frontmatterImageProps: this.data.settings.frontmatterImageProps,
-      showNonMarkdownFiles: this.data.settings.showNonMarkdownFiles,
+      filter: {
+        folders: config.filter.folders,
+        tags: config.filter.tags,
+        globs: config.filter.globs,
+        searchQuery: config.filter.searchQuery.trim(),
+        fileTypes: config.filter.fileTypes,
+      },
+      frontmatterImageProps: config.frontmatterImageProps,
     });
   }
 
   getCandidateFiles(): TFile[] {
     const candidates: TFile[] = [];
     const allFiles = this.app.vault.getFiles();
-    const excludeFolders = this.data.settings.excludeFolders
-      .map((folderPath) => folderPath.replace(/\/+$/, ''))
-      .filter((folderPath) => folderPath.length > 0);
-    const excludeGlobs = this.data.settings.excludeGlobs.map(compileGlob);
-    const excludeTags = new Set(
-      this.data.settings.excludeTags.map((tag) => tag.toLowerCase())
-    );
+    // Compiled once: the per-dimension helpers would otherwise rebuild every
+    // glob regex for every file in the vault.
+    const filter = compileFilter(this.getConfig().filter);
 
     for (const file of allFiles) {
-      // Filter out files inside any excluded folder.
-      let excluded = false;
-      const filePath = file.path.toLowerCase();
-      const fileName = file.path.slice(file.path.lastIndexOf('/') + 1);
+      // Folders, globs and file type are all answerable from the path alone.
+      // File type subsumes the old `showNonMarkdownFiles`: blacklisting no
+      // categories allows everything, whitelisting none allows nothing.
+      if (!filter.passesPath(file.path)) continue;
 
-      for (const folderPath of excludeFolders) {
-        const normalizedFolderPath = folderPath.toLowerCase();
-        if (
-          filePath === normalizedFolderPath ||
-          filePath.startsWith(`${normalizedFolderPath}/`)
-        ) {
-          excluded = true;
-          break;
-        }
-      }
-
-      if (excluded) {
-        continue;
-      }
-
-      // Match filename patterns against both the full vault path and the
-      // filename, so `Daily/*` can target a folder while `*.draft.md` or
-      // `*.*` works for files in any folder.
-      for (const glob of excludeGlobs) {
-        if (glob.test(file.path) || glob.test(fileName)) {
-          excluded = true;
-          break;
-        }
-      }
-
-      if (excluded) {
-        continue;
-      }
-
-      // Standalone attachments cannot have Markdown tags. They still pass
-      // folder/glob filters and can be matched by path search terms.
+      // Standalone attachments cannot carry Markdown tags, and `tagsInert`
+      // means tag matching cannot exclude anything anyway, so both skip the
+      // metadata lookup entirely.
       const isMarkdown = file.extension.toLowerCase() === 'md';
-      if (!isMarkdown && !this.data.settings.showNonMarkdownFiles) {
-        continue;
-      }
-      if (!isMarkdown || excludeTags.size === 0) {
+      if (!isMarkdown || filter.tagsInert) {
         candidates.push(file);
         continue;
       }
@@ -159,17 +151,7 @@ export class Indexer {
         });
       }
 
-      let hasExcludedTag = false;
-      for (const excludeTag of excludeTags) {
-        if (fileTags.has(excludeTag)) {
-          hasExcludedTag = true;
-          break;
-        }
-      }
-
-      if (hasExcludedTag) {
-        continue;
-      }
+      if (!filter.passesTags(fileTags)) continue;
 
       candidates.push(file);
     }
@@ -182,7 +164,7 @@ export class Indexer {
   ): Promise<void> {
     const candidates = this.getCandidateFiles();
     const total = candidates.length;
-    const searchQuery = this.data.settings.searchQuery.trim();
+    const searchQuery = compileFilter(this.getConfig().filter).searchQuery;
     const matchedCandidatePaths = new Set<string>();
 
     // Keep reads parallel but bounded for mobile devices and large notes.
@@ -259,7 +241,7 @@ export class Indexer {
           const imagePath = extractImage(
             content,
             frontmatter,
-            this.data.settings.frontmatterImageProps
+            this.getConfig().frontmatterImageProps
           );
           const mediaOnly =
             (Boolean(imagePath) || hasMediaEmbed(content)) &&
