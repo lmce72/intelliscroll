@@ -1,20 +1,31 @@
 import { MarkdownView, setIcon } from 'obsidian';
 import type DoomscrollPlugin from './main';
-import { isIgnored, ratingIcon, showRatingMenu } from './rating.ts';
+import {
+  ignoreIcon,
+  ignoreLabel,
+  isIgnored,
+  ratingIcon,
+  showRatingMenu,
+  toggleIgnored,
+} from './rating.ts';
 import { t } from './i18n.ts';
 
 const FLOAT_CLASS = 'doomscroll-note-float';
-const BADGE_CLASS = 'doomscroll-note-float-badge';
 const RATE_CLASS = 'doomscroll-note-float-rate';
+const IGNORE_CLASS = 'doomscroll-note-float-ignore';
 
 /**
- * A floating marker that appears in a note opened from the feed.
+ * A floating control for a note opened from the feed.
  *
- * It shows two things: that this note came from the feed, and a way to rate it
- * without going back. That matters because a rating is only meaningful *after*
- * reading — at the moment the card is clicked you have not read anything yet,
- * so the feed's own rating button is the wrong moment to ask. The association
- * therefore lasts for the session rather than for the instant of opening.
+ * It carries two buttons and no badge: the control's presence in the pane is
+ * itself the statement that the note came from the feed, so a separate marker
+ * icon beside two already-labelled buttons was noise. The buttons are coloured
+ * — primary for rating, warning for ignoring — which is also what makes the
+ * control read as belonging to this plugin at a glance.
+ *
+ * That matters because a rating is only meaningful *after* reading: at the
+ * moment the card is clicked you have read nothing. The association therefore
+ * lasts for the session rather than for the instant of opening.
  *
  * Mounted into the note view's own container rather than the workspace root so
  * it moves with the pane and disappears with it. DOM is built exclusively
@@ -38,8 +49,7 @@ export class NoteOverlay {
 
       const path = view.file?.path ?? null;
       const existing = view.contentEl.querySelector(`.${FLOAT_CLASS}`);
-      const wanted =
-        path !== null && this.plugin.wasOpenedFromFeed(path);
+      const wanted = path !== null && this.plugin.wasOpenedFromFeed(path);
 
       if (wanted && existing === null && path !== null) {
         this.mount(view, path);
@@ -60,26 +70,32 @@ export class NoteOverlay {
 
   private mount(view: MarkdownView, path: string): void {
     const container = view.contentEl.createDiv({ cls: FLOAT_CLASS });
+    const title = view.file?.basename ?? path;
 
-    // The badge is the marker itself: the same icon the ribbon uses, so its
-    // meaning is already familiar from the feed's entry point.
-    const badge = container.createSpan({ cls: BADGE_CLASS });
-    setIcon(badge, 'gallery-vertical');
-    badge.setAttribute('aria-label', t('view.float.marker'));
-    badge.setAttribute('title', t('view.float.marker'));
-
-    const button = container.createEl('button', {
-      cls: `clickable-icon ${RATE_CLASS}`,
+    const ignoreButton = container.createEl('button', {
+      cls: `mod-warning ${IGNORE_CLASS}`,
     });
-    setIcon(button, 'gauge');
-
-    const label = t('view.float.rate', {
-      title: view.file?.basename ?? path,
+    const paintIgnore = (ignored: boolean): void => {
+      setIcon(ignoreButton, ignoreIcon(ignored));
+      const label = ignoreLabel(ignored);
+      ignoreButton.setAttribute('aria-label', label);
+      ignoreButton.setAttribute('title', label);
+    };
+    paintIgnore(isIgnored(this.plugin, path));
+    ignoreButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      void (async () => paintIgnore(await toggleIgnored(this.plugin, path)))();
     });
-    button.setAttribute('aria-label', label);
-    button.setAttribute('title', label);
 
-    button.addEventListener('click', (event) => {
+    const rateButton = container.createEl('button', {
+      cls: `mod-cta ${RATE_CLASS}`,
+    });
+    setIcon(rateButton, 'gauge');
+    const label = t('view.float.rate', { title });
+    rateButton.setAttribute('aria-label', label);
+    rateButton.setAttribute('title', label);
+
+    rateButton.addEventListener('click', (event) => {
       event.stopPropagation();
       showRatingMenu({
         plugin: this.plugin,
@@ -87,16 +103,14 @@ export class NoteOverlay {
         path,
         onRated: (rating) => {
           // Reflect the choice on the button, matching the card's behaviour.
-          setIcon(button, ratingIcon(rating));
-          const label = t('view.action.rated', { rating: t(`view.rating.${rating}`) });
-          button.setAttribute('aria-label', label);
-          button.setAttribute('title', label);
+          setIcon(rateButton, ratingIcon(rating));
+          const next = t('view.action.rated', {
+            rating: t(`view.rating.${rating}`),
+          });
+          rateButton.setAttribute('aria-label', next);
+          rateButton.setAttribute('title', next);
         },
       });
     });
-
-    // An ignored note is no longer part of the feed, so claiming it came from
-    // there would be stale. The class lets the badge say so.
-    container.toggleClass('is-ignored', isIgnored(this.plugin, path));
   }
 }

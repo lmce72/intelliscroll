@@ -569,25 +569,14 @@
   box-shadow: var(--shadow-s);
 }
 
-/* The marker itself: the same icon the ribbon uses, so its meaning is already
-   familiar from the feed's entry point. */
-.doomscroll-note-float-badge {
+.doomscroll-note-float-rate,
+.doomscroll-note-float-ignore {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  color: var(--text-muted);
+  width: 2rem;
+  height: 2rem;
+  padding: 0.25rem;
 }
 
-.doomscroll-note-float-rate {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 
-/* Once ignored the note is no longer part of the feed, so the marker stops
-   claiming membership. */
-.doomscroll-note-float.is-ignored {
-  opacity: 0.5;
-}

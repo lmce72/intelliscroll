@@ -33,7 +33,7 @@ import { selectBatch } from './selector';
 import { allAlgorithms, getAlgorithm } from './algorithms';
 import { clampDwell, gradeEngagement, ratingForVerdict } from './grading';
 import { SrsStore, logSrsError } from './srsLog';
-import { showRatingMenu } from './rating';
+import { ignoreIcon, ignoreLabel, isIgnored, showRatingMenu, toggleIgnored } from './rating';
 import { passesFileTypeRule } from './filtering';
 import { pickCardIndex } from './navigation';
 import { ShortcutsModal } from './help';
@@ -1510,6 +1510,27 @@ export class DoomscrollView extends ItemView {
     container: HTMLElement,
     preview: NotePreview
   ): void {
+    // Rating and ignoring get a button each. Rating is a choice between four
+    // outcomes; ignoring is a two-state toggle — folding the toggle into the
+    // rating menu would make the common case two clicks instead of one. The
+    // warning colour marks it as the destructive-feeling one.
+    const ignoreButton = container.createEl('button', {
+      cls: 'clickable-icon mod-warning doomscroll-card-ignore',
+    });
+    const paintIgnore = (ignored: boolean): void => {
+      setIcon(ignoreButton, ignoreIcon(ignored));
+      const label = ignoreLabel(ignored);
+      ignoreButton.setAttribute('aria-label', label);
+      ignoreButton.setAttribute('title', label);
+    };
+    paintIgnore(isIgnored(this.plugin, preview.path));
+    ignoreButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      void (async () => {
+        paintIgnore(await toggleIgnored(this.plugin, preview.path));
+      })();
+    });
+
     const button = container.createEl('button', {
       cls: 'clickable-icon doomscroll-card-rate',
     });
@@ -1532,6 +1553,7 @@ export class DoomscrollView extends ItemView {
       });
     });
   }
+
   /** Show the chosen rating on the card so the action has visible feedback. */
   private updateRatingButton(path: string, rating: Rating): void {
     const card = Array.from(

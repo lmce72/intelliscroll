@@ -70,7 +70,6 @@ export const messages: MessageModule = {
     'view.rating.good': 'Good — recalled',
     'view.rating.easy': 'Easy — trivial',
 
-    'view.float.marker': 'Opened from IntelliScroll',
     'view.float.rate': 'Rate {title}',
     'view.modal.savePreset.title': 'Save filter preset',
     'view.modal.savePreset.suggestion': '{name} (temporary)',
@@ -150,7 +149,6 @@ export const messages: MessageModule = {
     'view.rating.good': '良好 —— 想起来了',
     'view.rating.easy': '简单 —— 毫不费力',
 
-    'view.float.marker': '从 IntelliScroll 打开',
     'view.float.rate': '给「{title}」评分',
     'view.modal.savePreset.title': '保存过滤预设',
     'view.modal.savePreset.suggestion': '{name}（临时）',

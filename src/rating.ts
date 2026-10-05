@@ -112,12 +112,11 @@ export interface RatingMenuOptions {
   path: string;
   /** Called only when a rating was actually written. */
   onRated?: (rating: Rating) => void;
-  onIgnoredChanged?: (ignored: boolean) => void;
 }
 
 /** The rating menu, identical wherever it is opened from. */
 export function showRatingMenu(options: RatingMenuOptions): void {
-  const { plugin, event, path, onRated, onIgnoredChanged } = options;
+  const { plugin, event, path, onRated } = options;
   const menu = new Menu();
 
   menu.addItem((item) => item.setTitle(t('view.menu.rating')).setIsLabel(true));
@@ -136,18 +135,20 @@ export function showRatingMenu(options: RatingMenuOptions): void {
     );
   }
 
-  menu.addSeparator();
-  const ignored = isIgnored(plugin, path);
-  menu.addItem((item) =>
-    item
-      .setTitle(ignored ? t('view.menu.unignore') : t('view.menu.ignore'))
-      .setIcon(ignored ? 'rotate-ccw' : 'eye-off')
-      .onClick(() => {
-        void (async () => {
-          onIgnoredChanged?.(await toggleIgnored(plugin, path));
-        })();
-      })
-  );
-
   menu.showAtMouseEvent(event);
+}
+
+/**
+ * The icon an ignore button should show for the current state.
+ *
+ * Ignoring is a two-state toggle rather than a set of choices, so it gets its
+ * own button instead of a menu — one click instead of two, and the icon says
+ * which way it will go.
+ */
+export function ignoreIcon(ignored: boolean): string {
+  return ignored ? 'rotate-ccw' : 'eye-off';
+}
+
+export function ignoreLabel(ignored: boolean): string {
+  return ignored ? t('view.menu.unignore') : t('view.menu.ignore');
 }
