@@ -44,25 +44,37 @@ import {
   type PluginSettings,
 } from './types';
 
-/** Algorithm ids to display names, sourced from the registry itself. */
-const ALGORITHM_OPTIONS: Record<string, string> = Object.fromEntries(
-  allAlgorithms().map((algorithm) => [
-    algorithm.id,
-    algorithm.id === 'off' ? 'Off (shuffled feed)' : algorithm.label,
-  ])
-);
+/**
+ * Algorithm ids to display names, sourced from the registry itself.
+ *
+ * Built per call: a module-level table would be evaluated once at import, before
+ * the language setting is applied, and the labels would then freeze in whatever
+ * language was active at load time.
+ */
+function algorithmOptions(): Record<string, string> {
+  return Object.fromEntries(
+    allAlgorithms().map((algorithm) => [
+      algorithm.id,
+      algorithm.id === 'off' ? t('presets.algorithm.option.off') : algorithm.label,
+    ])
+  );
+}
 
-const GRADING_MODE_OPTIONS: Record<string, string> = {
-  auto: 'Automatic only',
-  hybrid: 'Automatic, with manual override',
-  manual: 'Manual only',
-};
+function gradingModeOptions(): Record<string, string> {
+  return {
+    auto: t('settings.gradingMode.option.auto'),
+    hybrid: t('settings.gradingMode.option.hybrid'),
+    manual: t('settings.gradingMode.option.manual'),
+  };
+}
 
-const SENSITIVITY_OPTIONS: Record<string, string> = {
-  conservative: 'Conservative',
-  medium: 'Medium',
-  aggressive: 'Aggressive',
-};
+function sensitivityOptions(): Record<string, string> {
+  return {
+    conservative: t('settings.sensitivity.option.conservative'),
+    medium: t('settings.sensitivity.option.medium'),
+    aggressive: t('settings.sensitivity.option.aggressive'),
+  };
+}
 
 const GITHUB_URL = 'https://github.com/lmce72/intelliscroll';
 const ISSUES_URL = `${GITHUB_URL}/issues`;
@@ -163,42 +175,46 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         },
       },
       {
-        name: 'Infinite scrolling',
-        desc: 'Automatically load more notes as you reach the end of the feed',
+        name: t('settings.infiniteScroll.name'),
+        desc: t('settings.infiniteScroll.desc'),
         control: { type: 'toggle', key: 'infiniteScroll' },
       },
       {
-        name: 'Include media-only notes',
-        desc: 'Show Markdown notes containing only images or other attachments',
+        name: t('settings.includeMediaOnlyNotes.name'),
+        desc: t('settings.includeMediaOnlyNotes.desc'),
         control: { type: 'toggle', key: 'includeMediaOnlyNotes' },
       },
       {
-        name: 'Show non-Markdown files',
-        desc: 'Show standalone vault files such as images, PDFs, and other attachments',
+        name: t('settings.showNonMarkdownFiles.name'),
+        desc: t('settings.showNonMarkdownFiles.desc'),
         control: { type: 'toggle', key: 'showNonMarkdownFiles' },
       },
       {
-        name: 'Simplified view',
-        desc: 'Show concise previews with readable tables, links, and code; turn off for full Markdown formatting.',
+        name: t('settings.simplifiedView.name'),
+        desc: t('settings.simplifiedView.desc'),
         control: { type: 'toggle', key: 'simplifiedView' },
       },
       {
-        name: 'Reduce animation',
-        desc: 'Disable card and scrolling animations during keyboard navigation',
+        name: t('settings.reduceAnimations.name'),
+        desc: t('settings.reduceAnimations.desc'),
         control: { type: 'toggle', key: 'reduceAnimations' },
       },
       {
-        name: 'Preview size',
-        desc: 'How many lines of note text to show on each card',
+        name: t('settings.previewSize.name'),
+        desc: t('settings.previewSize.desc'),
         control: {
           type: 'dropdown',
           key: 'previewSize',
-          options: { small: 'Small', medium: 'Medium', large: 'Large' },
+          options: {
+            small: t('settings.previewSize.option.small'),
+            medium: t('settings.previewSize.option.medium'),
+            large: t('settings.previewSize.option.large'),
+          },
         },
       },
       {
-        name: 'Search query',
-        desc: 'Filter notes using Obsidian-style search syntax, such as tag:#work or [status:Draft]',
+        name: t('settings.searchQuery.name'),
+        desc: t('settings.searchQuery.desc'),
         control: {
           type: 'text',
           key: 'searchQuery',
@@ -206,43 +222,47 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         },
       },
       {
-        name: 'Open notes in',
-        desc: 'Choose where a card opens',
+        name: t('settings.openNoteBehavior.name'),
+        desc: t('settings.openNoteBehavior.desc'),
         control: {
           type: 'dropdown',
           key: 'openNoteBehavior',
-          options: { tab: 'New tab', reuse: 'Reuse current tab', window: 'New window' },
+          options: {
+            tab: t('settings.openNoteBehavior.option.tab'),
+            reuse: t('settings.openNoteBehavior.option.reuse'),
+            window: t('settings.openNoteBehavior.option.window'),
+          },
         },
       },
       {
-        name: 'Exclude tags',
-        desc: 'Tags to skip without # (one per line)',
+        name: t('settings.excludeTags.name'),
+        desc: t('settings.excludeTags.desc'),
         control: { type: 'textarea', key: 'excludeTags' },
       },
       {
-        name: 'Exclude filename patterns',
-        desc: 'Filename patterns to skip (one per line, e.g., _*)',
+        name: t('settings.excludeGlobs.name'),
+        desc: t('settings.excludeGlobs.desc'),
         control: { type: 'textarea', key: 'excludeGlobs' },
       },
       {
-        name: 'Frontmatter image properties',
-        desc: 'Property names to check for images in frontmatter (one per line)',
+        name: t('settings.frontmatterImageProps.name'),
+        desc: t('settings.frontmatterImageProps.desc'),
         control: { type: 'textarea', key: 'frontmatterImageProps' },
       },
       {
-        name: 'Frontmatter properties before preview',
-        desc: 'Property names to render before the note body (one per line)',
+        name: t('settings.frontmatterBeforeProps.name'),
+        desc: t('settings.frontmatterBeforeProps.desc'),
         control: { type: 'textarea', key: 'frontmatterBeforeProps' },
       },
       {
-        name: 'Frontmatter properties after preview',
-        desc: 'Property names to render after the note body (one per line)',
+        name: t('settings.frontmatterAfterProps.name'),
+        desc: t('settings.frontmatterAfterProps.desc'),
         control: { type: 'textarea', key: 'frontmatterAfterProps' },
       },
       {
-        name: 'Excluded folders',
+        name: t('settings.excludedFolders.name'),
         render: (setting) => {
-          setting.setName('Excluded folders').setHeading();
+          setting.setName(t('settings.excludedFolders.name')).setHeading();
           // Reuse the existing list if there is one. Obsidian re-runs render
           // callbacks on every settings update — and every save refreshes the
           // tab — while leaving whatever this callback appended to settingEl
@@ -260,10 +280,12 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         },
       },
       {
-        name: 'Add excluded folder',
-        desc: 'Folders to skip (type or choose a folder)',
+        name: t('settings.addExcludedFolder.name'),
+        desc: t('settings.addExcludedFolder.desc'),
         render: (setting) => {
-          setting.setName('Add excluded folder').setDesc('Folders to skip (type or choose a folder)');
+          setting
+            .setName(t('settings.addExcludedFolder.name'))
+            .setDesc(t('settings.addExcludedFolder.desc'));
           let folderInputEl: HTMLInputElement | null = null;
           setting.addText((text) => {
             text.setPlaceholder('4. Archive');
@@ -271,14 +293,14 @@ export class DoomscrollSettingTab extends PluginSettingTab {
             new FolderSuggest(this.app, text.inputEl);
           });
           setting.addButton((button) =>
-            button.setButtonText('Add').onClick(() => {
+            button.setButtonText(t('settings.addExcludedFolder.action')).onClick(() => {
               const folder = normalizeFolderPath(folderInputEl?.value ?? '');
               if (!folder || folder === '.') {
-                new Notice('Excluded folder path cannot be empty or the vault root');
+                new Notice(t('settings.notice.folderEmpty'));
                 return;
               }
               if (this.flatView().excludeFolders.includes(folder)) {
-                new Notice('That folder is already excluded');
+                new Notice(t('settings.notice.folderDuplicate'));
                 return;
               }
               void this.addExcludedFolder(folder, folderInputEl);
@@ -309,18 +331,18 @@ export class DoomscrollSettingTab extends PluginSettingTab {
 
     const items: SettingDefinitionItem[] = [
       {
-        name: 'Resurfacing',
+        name: t('settings.resurfacing.title'),
         render: (setting) => {
-          setting.setName('Resurfacing').setHeading();
+          setting.setName(t('settings.resurfacing.title')).setHeading();
         },
       },
       {
-        name: 'Algorithm',
-        desc: 'Decide which notes resurface and when. Off keeps the original shuffled feed and writes nothing.',
+        name: t('settings.algorithm.name'),
+        desc: t('settings.algorithm.desc'),
         control: {
           type: 'dropdown',
           key: 'algorithm',
-          options: ALGORITHM_OPTIONS,
+          options: algorithmOptions(),
         },
       },
     ];
@@ -328,23 +350,23 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     if (settings.algorithm === 'off') return items;
 
     items.push({
-      name: 'Grading',
-      desc: 'How a note gets rated as you scroll past it',
+      name: t('settings.gradingMode.name'),
+      desc: t('settings.gradingMode.desc'),
       control: {
         type: 'dropdown',
         key: 'gradingMode',
-        options: GRADING_MODE_OPTIONS,
+        options: gradingModeOptions(),
       },
     });
 
     if (settings.gradingMode !== 'manual') {
       items.push({
-        name: 'Automatic grading sensitivity',
-        desc: 'How much evidence counts as engagement. Only ever rates a note as engaged; it never records a failure.',
+        name: t('settings.sensitivity.name'),
+        desc: t('settings.sensitivity.desc'),
         control: {
           type: 'dropdown',
           key: 'sensitivity',
-          options: SENSITIVITY_OPTIONS,
+          options: sensitivityOptions(),
         },
       });
     }
@@ -352,8 +374,8 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     if (settings.algorithm === 'fsrs') {
       items.push(
         {
-          name: 'Desired retention',
-          desc: 'Target chance of still remembering a note when it returns. Higher means shorter intervals and many more reviews; 0.85-0.90 suits most people.',
+          name: t('settings.requestRetention.name'),
+          desc: t('settings.requestRetention.desc'),
           control: {
             type: 'slider',
             key: 'requestRetention',
@@ -364,8 +386,8 @@ export class DoomscrollSettingTab extends PluginSettingTab {
           },
         },
         {
-          name: 'Maximum interval',
-          desc: 'Longest gap in days before a note is shown again',
+          name: t('settings.maximumInterval.name'),
+          desc: t('settings.maximumInterval.desc'),
           control: {
             type: 'number',
             key: 'maximumInterval',
@@ -375,8 +397,8 @@ export class DoomscrollSettingTab extends PluginSettingTab {
           },
         },
         {
-          name: 'Fuzz due dates',
-          desc: 'Spread due dates slightly so notes do not all return on the same day',
+          name: t('settings.enableFuzz.name'),
+          desc: t('settings.enableFuzz.desc'),
           control: { type: 'toggle', key: 'enableFuzz' },
         }
       );
@@ -726,7 +748,7 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     container.empty();
 
     if (this.flatView().excludeFolders.length === 0) {
-      container.createDiv({ text: 'No excluded folders' });
+      container.createDiv({ text: t('settings.excludedFolders.empty') });
       return;
     }
 
@@ -737,7 +759,9 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         .createEl('button', {
           text: '×',
           cls: 'doomscroll-excluded-folder-remove',
-          attr: { 'aria-label': `Remove excluded folder ${folder}` },
+          attr: {
+            'aria-label': t('settings.excludedFolders.remove', { folder }),
+          },
         })
         .addEventListener('click', () => {
           void this.removeExcludedFolder(folder, container);
@@ -758,7 +782,7 @@ function configureHeader(setting: Setting): void {
       })
     )
     .addButton((button) =>
-      button.setButtonText('Report issue').onClick(() => {
+      button.setButtonText(t('settings.header.action.reportIssue')).onClick(() => {
         window.open(ISSUES_URL, '_blank');
       })
     );
