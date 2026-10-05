@@ -3,6 +3,7 @@ import type IntelliScrollPlugin from './main';
 import { getAlgorithm } from './algorithms/index.ts';
 import { SrsStore } from './srsLog.ts';
 import { t } from './i18n.ts';
+import { setIcon } from 'obsidian';
 import type { Rating } from './types.ts';
 
 /**
@@ -25,6 +26,47 @@ const RATING_ICONS: Record<Rating, string> = {
 
 export function ratingIcon(rating: Rating): string {
   return RATING_ICONS[rating];
+}
+
+/**
+ * The colour each rating paints the button, following what the rating means:
+ * forgetting is the failure case, difficulty is a warning, success is normal,
+ * and triviality is the easy path.
+ */
+const RATING_CLASS: Record<Rating, string> = {
+  again: 'intelliscroll-rated-again',
+  hard: 'intelliscroll-rated-hard',
+  good: 'intelliscroll-rated-good',
+  easy: 'intelliscroll-rated-easy',
+};
+
+/**
+ * Paint a rating button for its current state.
+ *
+ * Shared so the card and the floating control cannot drift apart in either
+ * their icon, their colour or their label.
+ */
+export function paintRatingButton(
+  plugin: IntelliScrollPlugin,
+  button: HTMLElement,
+  path: string,
+  title: string
+): void {
+  const rating = plugin.lastRatingFor(path);
+  setIcon(button, rating === null ? 'gauge' : ratingIcon(rating));
+  for (const cls of Object.values(RATING_CLASS)) button.toggleClass(cls, false);
+  if (rating !== null) button.addClass(RATING_CLASS[rating]);
+  // Recorded so stylesheets can distinguish an unrated button from a rated one
+  // without depending on which view the button belongs to.
+  if (rating === null) delete button.dataset.rating;
+  else button.dataset.rating = rating;
+
+  const label =
+    rating === null
+      ? t('view.action.rate', { title })
+      : t('view.action.rated', { rating: ratingLabel(rating) });
+  button.setAttribute('aria-label', label);
+  button.setAttribute('title', label);
 }
 
 export function ratingLabel(rating: Rating): string {
@@ -103,6 +145,8 @@ export async function applyRating(
     getAlgorithm(algorithm.algorithm)
   );
 
+  // Both entry points must reflect this, including the one that did not ask.
+  plugin.notifyRatingWritten(path, rating);
   return true;
 }
 

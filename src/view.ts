@@ -21,19 +21,19 @@ import {
   isPreviewSize,
   NotePreview,
   PreviewSize,
+  titleFromPath,
   toNotePreview,
   type AlgorithmId,
   type FsrsTunables,
   type GradingMode,
   type NoteSrsState,
-  type Rating,
   type Sensitivity,
 } from './types';
 import { selectBatch } from './selector';
 import { allAlgorithms, getAlgorithm } from './algorithms';
 import { clampDwell, gradeEngagement, ratingForVerdict } from './grading';
 import { SrsStore, logSrsError } from './srsLog';
-import { ignoreIcon, ignoreLabel, isIgnored, showRatingMenu, toggleIgnored } from './rating';
+import { ignoreIcon, ignoreLabel, isIgnored, paintRatingButton, showRatingMenu, toggleIgnored } from './rating';
 import { passesFileTypeRule } from './filtering';
 import { pickCardIndex } from './navigation';
 import { ShortcutsModal } from './help';
@@ -49,25 +49,6 @@ import {
 
 export const VIEW_TYPE_INTELLISCROLL = 'intelliscroll-view';
 const HISTORY_SAVE_DELAY_MS = 2_000;
-
-/** Icon shown on a card's rating button, per rating. */
-const RATING_ICONS: Record<Rating, string> = {
-  again: 'rotate-ccw',
-  hard: 'minus',
-  good: 'check',
-  easy: 'zap',
-};
-
-/**
- * Label for a rating.
- *
- * Resolved on every call rather than stored in a module-level map: a constant
- * map would freeze whichever language was active when this module was first
- * imported, which is not necessarily the one the user ends up with.
- */
-function ratingLabel(rating: Rating): string {
-  return t(`view.rating.${rating}`);
-}
 
 
 /**
@@ -520,6 +501,14 @@ export class IntelliScrollView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.isClosed = false;
+    // A rating can come from the note's floating control as well as this card,
+    // so repaint on every write rather than only this view's own.
+    this.register(
+      this.plugin.onRatingWritten((path) => {
+        const preview = this.currentBatch.find((item) => item.path === path);
+        this.updateRatingButton(path, preview?.title ?? titleFromPath(path));
+      })
+    );
     this.snippetRenderGenerations = new WeakMap();
     this.syncAnimationPreference();
     if (this.hasRendered && this.containerEl.querySelector('.intelliscroll-body')) {
@@ -1535,10 +1524,7 @@ export class IntelliScrollView extends ItemView {
       cls: 'clickable-icon intelliscroll-card-rate',
     });
     button.dataset.ratingPath = preview.path;
-    const rateLabel = t('view.action.rate', { title: preview.title });
-    button.setAttribute('aria-label', rateLabel);
-    button.setAttribute('title', rateLabel);
-    setIcon(button, 'gauge');
+    paintRatingButton(this.plugin, button, preview.path, preview.title);
 
     button.addEventListener('click', (event) => {
       // The card itself opens the note; a rating must not do that.
@@ -1549,23 +1535,19 @@ export class IntelliScrollView extends ItemView {
         plugin: this.plugin,
         event,
         path: preview.path,
-        onRated: (rating) => this.updateRatingButton(preview.path, rating),
+        onRated: () => this.updateRatingButton(preview.path, preview.title),
       });
     });
   }
 
   /** Show the chosen rating on the card so the action has visible feedback. */
-  private updateRatingButton(path: string, rating: Rating): void {
+  private updateRatingButton(path: string, title: string): void {
     const card = Array.from(
       this.containerEl.querySelectorAll<HTMLElement>('.intelliscroll-card')
     ).find((candidate) => candidate.dataset.path === path);
     const button = card?.querySelector<HTMLElement>('.intelliscroll-card-rate');
     if (!button) return;
-
-    setIcon(button, RATING_ICONS[rating]);
-    const ratedLabel = t('view.action.rated', { rating: ratingLabel(rating) });
-    button.setAttribute('aria-label', ratedLabel);
-    button.setAttribute('title', ratedLabel);
+    paintRatingButton(this.plugin, button, path, title);
   }
 
   private createCardObserver(container: HTMLElement): IntersectionObserver {

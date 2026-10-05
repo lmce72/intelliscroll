@@ -6,6 +6,7 @@ import {
   type FilterPreset,
   type PluginData,
   type PluginSettings,
+  type Rating,
   type StoredNotePreview,
 } from './types';
 import {
@@ -49,6 +50,37 @@ export default class IntelliScrollPlugin extends Plugin {
 
   wasOpenedFromFeed(path: string): boolean {
     return this.openedFromFeed.has(path);
+  }
+
+  /**
+   * Listeners told whenever a rating is written.
+   *
+   * A rating can be given from two places — a card in the feed and the floating
+   * control in a note — and each must reflect what the other did. Without this
+   * the button you did not press keeps showing the unrated state, which reads
+   * as the rating not having been recorded.
+   */
+  private ratingListeners = new Set<(path: string, rating: Rating) => void>();
+
+  onRatingWritten(listener: (path: string, rating: Rating) => void): () => void {
+    this.ratingListeners.add(listener);
+    return () => this.ratingListeners.delete(listener);
+  }
+
+  notifyRatingWritten(path: string, rating: Rating): void {
+    this.lastRatings.set(path, rating);
+    for (const listener of this.ratingListeners) listener(path, rating);
+  }
+
+  /**
+   * The last rating given this session, so a control rebuilt later (a pane
+   * remount, a re-rendered card) still shows what was chosen instead of
+   * resetting to the unrated gauge.
+   */
+  private lastRatings = new Map<string, Rating>();
+
+  lastRatingFor(path: string): Rating | null {
+    return this.lastRatings.get(path) ?? null;
   }
 
   private settingsRefreshTimer: number | null = null;

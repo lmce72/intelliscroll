@@ -601,3 +601,41 @@
   /* The row aligns on the baseline for text; buttons should not. */
   align-self: center;
 }
+
+/* Rating state colours, following what each rating means: forgetting is the
+   failure case, difficulty is a warning, success is ordinary, and triviality
+   is the easy path. Obsidian's own palette variables, so this follows the
+   theme rather than fixing colours of its own. */
+.intelliscroll-rated-again {
+  color: var(--color-red);
+}
+.intelliscroll-rated-hard {
+  color: var(--color-orange);
+}
+.intelliscroll-rated-good {
+  color: var(--color-green);
+}
+.intelliscroll-rated-easy {
+  color: var(--color-blue);
+}
+
+/* On the floating control the accent highlight means "not yet rated". Once a
+   rating exists the highlight gives way to the state colour, so the icon is
+   legible — a coloured icon on the accent background would not be. Two classes
+   deep so it outranks the button's own `mod-cta` colour. */
+.intelliscroll-note-float-rate[data-rating] {
+  background: var(--background-secondary);
+  color: var(--text-muted);
+}
+.intelliscroll-note-float-rate[data-rating='again'] {
+  color: var(--color-red);
+}
+.intelliscroll-note-float-rate[data-rating='hard'] {
+  color: var(--color-orange);
+}
+.intelliscroll-note-float-rate[data-rating='good'] {
+  color: var(--color-green);
+}
+.intelliscroll-note-float-rate[data-rating='easy'] {
+  color: var(--color-blue);
+}

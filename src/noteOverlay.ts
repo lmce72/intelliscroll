@@ -4,11 +4,10 @@ import {
   ignoreIcon,
   ignoreLabel,
   isIgnored,
-  ratingIcon,
+  paintRatingButton,
   showRatingMenu,
   toggleIgnored,
 } from './rating.ts';
-import { t } from './i18n.ts';
 
 const FLOAT_CLASS = 'intelliscroll-note-float';
 const RATE_CLASS = 'intelliscroll-note-float-rate';
@@ -32,7 +31,25 @@ const IGNORE_CLASS = 'intelliscroll-note-float-ignore';
  * through Obsidian's `createEl`/`setIcon`.
  */
 export class NoteOverlay {
-  constructor(private readonly plugin: IntelliScrollPlugin) {}
+  private unsubscribe: (() => void) | null = null;
+
+  constructor(private readonly plugin: IntelliScrollPlugin) {
+    // A rating can also be given from the feed card, so repaint on every write
+    // rather than only on this control's own menu.
+    this.unsubscribe = plugin.onRatingWritten(() => this.repaint());
+  }
+
+  /** Repaint every mounted control from the plugin's remembered state. */
+  private repaint(): void {
+    for (const leaf of this.plugin.app.workspace.getLeavesOfType('markdown')) {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView)) continue;
+      const path = view.file?.path ?? null;
+      const button = view.contentEl.querySelector<HTMLElement>(`.${RATE_CLASS}`);
+      if (!path || !button) continue;
+      paintRatingButton(this.plugin, button, path, view.file?.basename ?? path);
+    }
+  }
 
   /**
    * Bring every note pane in line with the current set of feed-opened notes.
@@ -60,6 +77,8 @@ export class NoteOverlay {
   }
 
   destroy(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
     for (const leaf of this.plugin.app.workspace.getLeavesOfType('markdown')) {
       const view = leaf.view;
       if (view instanceof MarkdownView) {
@@ -90,10 +109,7 @@ export class NoteOverlay {
     const rateButton = container.createEl('button', {
       cls: `mod-cta ${RATE_CLASS}`,
     });
-    setIcon(rateButton, 'gauge');
-    const label = t('view.float.rate', { title });
-    rateButton.setAttribute('aria-label', label);
-    rateButton.setAttribute('title', label);
+    paintRatingButton(this.plugin, rateButton, path, title);
 
     rateButton.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -101,15 +117,9 @@ export class NoteOverlay {
         plugin: this.plugin,
         event,
         path,
-        onRated: (rating) => {
-          // Reflect the choice on the button, matching the card's behaviour.
-          setIcon(rateButton, ratingIcon(rating));
-          const next = t('view.action.rated', {
-            rating: t(`view.rating.${rating}`),
-          });
-          rateButton.setAttribute('aria-label', next);
-          rateButton.setAttribute('title', next);
-        },
+        // The painter runs off the plugin's remembered state, so the button
+        // reflects the choice without this callback doing anything.
+        onRated: () => undefined,
       });
     });
   }
