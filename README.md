@@ -50,12 +50,13 @@ All scheduling state lives in two files beside the plugin
 (`srs-log.ndjson` and `srs-snapshot.json`). Nothing is sent anywhere, and no
 note file is modified — that is the property the test suite guards hardest.
 
-## Why
-
-<img src="https://github.com/user-attachments/assets/bbb240b2-e7bd-4ee7-af4e-b9f583d74629" height="400px" alt="Doomscroll on mobile" />
-
 ## Features
 
+<img src="https://github.com/user-attachments/assets/bbb240b2-e7bd-4ee7-af4e-b9f583d74629" height="400px" alt="The feed on mobile" />
+
+- **Four scheduling algorithms** — Off, FSRS-6, SM-2, Leitner — chosen in
+  settings, overridable from the feed header for a single session
+- **Per-card rating** when you want to correct the schedule by hand
 - Shuffled card feed, not another list sorted by modification date
 - Manual reshuffle when the current batch is not doing it for you
 - Optional infinite scrolling that loads more notes as you reach the end
@@ -73,14 +74,17 @@ note file is modified — that is the property the test suite guards hardest.
 
 ## Installation
 
+This installs as **IntelliScroll** (`intelliscroll`), so it can sit alongside
+Doomscroll rather than replacing it.
+
 1. Clone this repository into your vault's `.obsidian/plugins/` directory:
    ```
-   git clone https://github.com/yaroshevych/doomscroll .obsidian/plugins/doomscroll
+   git clone https://github.com/lmce72/intelliscroll .obsidian/plugins/intelliscroll
    ```
 
 2. Navigate to the plugin directory and install dependencies:
    ```
-   cd .obsidian/plugins/doomscroll
+   cd .obsidian/plugins/intelliscroll
    npm install
    ```
 
@@ -92,6 +96,21 @@ note file is modified — that is the property the test suite guards hardest.
 4. Enable the plugin in Obsidian settings under **Community plugins**.
 
 ## Settings
+
+### Resurfacing
+
+- **Algorithm**: Off, FSRS-6, SM-2 or Leitner (default: Off, which reproduces
+  the original shuffled feed exactly)
+- **Grading**: Automatic only, automatic with manual override, or manual only
+- **Automatic grading sensitivity**: How much evidence counts as engagement
+- **Desired retention** (FSRS, 0.70–0.97): Target chance of still remembering a
+  note when it returns. Raising it shortens intervals and increases the number
+  of reviews steeply. 0.85–0.90 suits most people
+- **Maximum interval** (FSRS): Longest gap in days before a note returns
+- **Fuzz due dates** (FSRS): Spread due dates slightly so notes do not all
+  return on the same day
+
+### Feed
 
 - **Batch size** (5 to 50): How many cards to show per reshuffle (default: 20)
 - **Infinite scrolling**: Load more notes automatically as you reach the end;
@@ -116,9 +135,14 @@ note file is modified — that is the property the test suite guards hardest.
 
 1. Click the gallery icon in the ribbon or use the "Open feed" command
 2. Click any card to open the note in a new pane
-3. Click the refresh icon when you want a new random batch
+3. Click the refresh icon when you want a new batch
 4. Click the back arrow to return to the previous batch
-5. Adjust settings to tune which notes appear
+5. Click the sliders icon to change the algorithm, grading or FSRS parameters
+   on the spot — these last for the session only and are discarded when the
+   feed is reopened, so it is safe to experiment
+6. With resurfacing on and grading not set to automatic-only, each card carries
+   a small gauge icon for rating it by hand
+7. Adjust settings to tune which notes appear
 
 ## Development
 
@@ -129,4 +153,9 @@ npm run build  # Production build
 
 ## License
 
-MIT
+MIT.
+
+IntelliScroll is a fork of [Doomscroll](https://github.com/yaroshevych/doomscroll)
+by Oleg Yaroshevych. The original copyright notice is retained in
+[LICENSE](LICENSE); the feed, indexing, rendering and settings infrastructure
+are his work, and this fork adds the scheduling engine on top.
