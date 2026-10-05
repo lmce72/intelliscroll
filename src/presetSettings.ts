@@ -63,7 +63,7 @@ type AnyPreset = FilterPreset | AlgorithmPreset | DisplayPreset | TotalPreset;
  * Where "save to a file" lands. A visible top-level folder keeps the export
  * findable in the file explorer; the vault API cannot write into `.obsidian`.
  */
-const EXPORT_FOLDER = 'Doomscroll exports';
+const EXPORT_FOLDER = 'IntelliScroll exports';
 
 // ─── Control keys ──────────────────────────────────────────────────────────
 
@@ -512,8 +512,8 @@ async function saveExport(
   // A timestamp in the name means repeated exports never clobber each other.
   const prefix =
     kind === 'library'
-      ? 'doomscroll-library'
-      : `doomscroll-${kind}-${slug(activePresetOf(plugin, kind).name)}`;
+      ? 'intelliscroll-library'
+      : `intelliscroll-${kind}-${slug(activePresetOf(plugin, kind).name)}`;
   const filename = `${prefix}-${timestamp()}.json`;
   try {
     await writeVaultFile(plugin, filename, json);
