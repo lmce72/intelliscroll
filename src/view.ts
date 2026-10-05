@@ -6,7 +6,6 @@ import {
   MarkdownRenderer,
   Menu,
   Modal,
-  Notice,
   Platform,
   Scope,
   Setting,
@@ -34,6 +33,7 @@ import { selectBatch } from './selector';
 import { allAlgorithms, getAlgorithm } from './algorithms';
 import { clampDwell, gradeEngagement, ratingForVerdict } from './grading';
 import { SrsStore, logSrsError } from './srsLog';
+import { showRatingMenu } from './rating';
 import { passesFileTypeRule } from './filtering';
 import { pickCardIndex } from './navigation';
 import { ShortcutsModal } from './help';
@@ -69,7 +69,6 @@ function ratingLabel(rating: Rating): string {
   return t(`view.rating.${rating}`);
 }
 
-const RATING_ORDER: readonly Rating[] = ['again', 'hard', 'good', 'easy'];
 
 /**
  * Asks for a preset name.
@@ -1523,128 +1522,16 @@ export class DoomscrollView extends ItemView {
     button.addEventListener('click', (event) => {
       // The card itself opens the note; a rating must not do that.
       event.stopPropagation();
-      this.showRatingMenu(event, preview);
+      // The same menu the note's floating control opens, so a rating means the
+      // same thing wherever it is given.
+      showRatingMenu({
+        plugin: this.plugin,
+        event,
+        path: preview.path,
+        onRated: (rating) => this.updateRatingButton(preview.path, rating),
+      });
     });
   }
-
-  private showRatingMenu(event: MouseEvent, preview: NotePreview): void {
-    const menu = new Menu();
-
-    menu.addItem((item) => item.setTitle(t('view.menu.rating')).setIsLabel(true));
-    for (const rating of RATING_ORDER) {
-      menu.addItem((item) =>
-        item
-          .setTitle(ratingLabel(rating))
-          .setIcon(RATING_ICONS[rating])
-          .onClick(() => {
-            void this.recordExplicitRating(preview, rating);
-          })
-      );
-    }
-
-    // Ignoring a note is a filter decision rather than a rating, so it gets its
-    // own section — and it lands in the filter preset's list, where it is
-    // editable alongside the other filters instead of in a private store only
-    // this menu can reach.
-    menu.addSeparator();
-    const ignored = this.isIgnored(preview.path);
-    menu.addItem((item) =>
-      item
-        .setTitle(ignored ? t('view.menu.unignore') : t('view.menu.ignore'))
-        .setIcon(ignored ? 'rotate-ccw' : 'eye-off')
-        .onClick(() => {
-          void this.toggleIgnored(preview);
-        })
-    );
-
-    menu.showAtMouseEvent(event);
-  }
-
-  private isIgnored(path: string): boolean {
-    const lower = path.toLowerCase();
-    return this.plugin
-      .getEffectiveFilter()
-      .ignore.values.some((value) => value.toLowerCase() === lower);
-  }
-
-  /**
-   * Add or remove a note from the active filter preset's ignore list.
-   *
-   * Edits the saved preset rather than a session override: wanting never to see
-   * a note again is a decision worth keeping. Filtering happens at index time,
-   * so the refresh this triggers rebuilds the index, which is what actually
-   * removes the note from the feed.
-   */
-  private async toggleIgnored(preview: NotePreview): Promise<void> {
-    const preset = this.plugin.data.settings.presets.filters.find(
-      (candidate) =>
-        candidate.id === this.plugin.data.settings.activeFilterPresetId
-    );
-    if (!preset) return;
-
-    const lower = preview.path.toLowerCase();
-    const already = preset.ignore.values.some(
-      (value) => value.toLowerCase() === lower
-    );
-    preset.ignore = {
-      mode: preset.ignore.mode,
-      values: already
-        ? preset.ignore.values.filter((value) => value.toLowerCase() !== lower)
-        : [...preset.ignore.values, preview.path],
-    };
-
-    await this.plugin.saveSettingsAndRefreshViews();
-    new Notice(
-      already ? t('view.notice.unignored') : t('view.notice.ignored')
-    );
-  }
-
-  /**
-   * Apply a rating the user chose by hand.
-   *
-   * The only source of `again` / `hard` / `easy`: automatic grading cannot
-   * produce a negative rating, so this is what lets a scheduler register a
-   * lapse at all.
-   */
-  private async recordExplicitRating(
-    preview: NotePreview,
-    rating: Rating
-  ): Promise<void> {
-    const algorithm = this.effectiveAlgorithm();
-    if (algorithm === 'off') return;
-
-    const store = this.plugin.srsStore;
-    if (!store?.isLoaded) return;
-
-    try {
-      const file = this.app.vault.getAbstractFileByPath(preview.path);
-      if (!(file instanceof TFile)) return;
-      const content = await this.app.vault.cachedRead(file);
-
-      await store.recordReview(
-        {
-          path: preview.path,
-          rating,
-          algorithm,
-          source: 'explicit',
-          hash: SrsStore.hashContent(content),
-          now: Date.now(),
-          tunables: this.effectiveTunables(),
-        },
-        getAlgorithm(algorithm)
-      );
-
-      // The explicit rating supersedes any automatic observation of this card,
-      // which must not be recorded as a second review when the batch tears down.
-      this.dwell.delete(preview.path);
-      this.visibleSince.delete(preview.path);
-
-      this.updateRatingButton(preview.path, rating);
-    } catch (error) {
-      logSrsError(`failed to record rating for ${preview.path}`, error);
-    }
-  }
-
   /** Show the chosen rating on the card so the action has visible feedback. */
   private updateRatingButton(path: string, rating: Rating): void {
     const card = Array.from(
@@ -2465,6 +2352,10 @@ export class DoomscrollView extends ItemView {
       // must be captured here: the note may be opened before the observer has
       // had a chance to see the card at all.
       this.markCardOpened(preview.path);
+
+      // Marks the note so its pane shows the floating control — which is where
+      // a rating can actually be given, after reading rather than before.
+      this.plugin.markOpenedFromFeed(preview.path);
 
       // A very quick tap can happen before IntersectionObserver fires.
       if (!this.viewedPathsInBatch.has(preview.path)) {

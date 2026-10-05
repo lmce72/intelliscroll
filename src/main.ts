@@ -19,6 +19,7 @@ import {
 } from './presets';
 import { DEFAULT_SETTINGS, DoomscrollSettingTab } from './settings';
 import { setLanguage } from './i18n';
+import { NoteOverlay } from './noteOverlay';
 import { Indexer } from './indexer';
 import { SrsStore, logSrsError } from './srsLog';
 import { DoomscrollView, VIEW_TYPE_DOOMSCROLL } from './view';
@@ -30,6 +31,26 @@ export default class DoomscrollPlugin extends Plugin {
   indexer!: Indexer;
   /** Sidecar persistence for resurfacing state. */
   srsStore!: SrsStore;
+
+  /**
+   * Notes opened from the feed during this session.
+   *
+   * Session-scoped on purpose: the point is to rate a note *after* reading it,
+   * so a marker that vanished the moment you navigated away would be useless.
+   */
+  private openedFromFeed = new Set<string>();
+  private noteOverlay: NoteOverlay | null = null;
+
+  /** Remember that this note was reached from the feed. */
+  markOpenedFromFeed(path: string): void {
+    this.openedFromFeed.add(path);
+    this.noteOverlay?.refresh();
+  }
+
+  wasOpenedFromFeed(path: string): boolean {
+    return this.openedFromFeed.has(path);
+  }
+
   private settingsRefreshTimer: number | null = null;
 
   async onload(): Promise<void> {
@@ -202,6 +223,19 @@ export default class DoomscrollPlugin extends Plugin {
 
     // Settings tab
     this.addSettingTab(new DoomscrollSettingTab(this.app, this));
+
+    // The floating marker for notes reached from the feed. Both events matter:
+    // switching panes and opening a file can each be the first moment the
+    // marker becomes relevant.
+    this.noteOverlay = new NoteOverlay(this);
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', () =>
+        this.noteOverlay?.refresh()
+      )
+    );
+    this.registerEvent(
+      this.app.workspace.on('file-open', () => this.noteOverlay?.refresh())
+    );
   }
 
   async activateView(): Promise<void> {
@@ -421,6 +455,9 @@ export default class DoomscrollPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.noteOverlay?.destroy();
+    this.noteOverlay = null;
+
     if (this.settingsRefreshTimer !== null) {
       window.clearTimeout(this.settingsRefreshTimer);
       this.settingsRefreshTimer = null;

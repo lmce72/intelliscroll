@@ -550,3 +550,44 @@
 .doomscroll-reshuffle-end-btn:hover {
   opacity: 0.9;
 }
+
+/* ─── Floating marker for a note opened from the feed ─────────────────────
+   Anchored to the note pane rather than the viewport so it travels with the
+   pane and does not stack up when several notes are open side by side. */
+.doomscroll-note-float {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: var(--layer-popover, 30);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  box-shadow: var(--shadow-s);
+}
+
+/* The marker itself: the same icon the ribbon uses, so its meaning is already
+   familiar from the feed's entry point. */
+.doomscroll-note-float-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--text-muted);
+}
+
+.doomscroll-note-float-rate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Once ignored the note is no longer part of the feed, so the marker stops
+   claiming membership. */
+.doomscroll-note-float.is-ignored {
+  opacity: 0.5;
+}
