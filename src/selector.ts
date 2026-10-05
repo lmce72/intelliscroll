@@ -21,6 +21,18 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const UNENGAGED_BOOST_DAYS = 1;
 
 /**
+ * How long that boost takes to fade, in days.
+ *
+ * Without decay the boost is permanent: `unengagedAt` is never cleared except
+ * by a real review, so every note ever scrolled past would carry a permanent
+ * +1 day. In a vault where most notes have been skipped at some point that
+ * bonus applies to nearly everything, which cancels it out and leaves the feed
+ * ordering skewed for no reason. "Give it a second chance soon" should mean
+ * soon, not forever.
+ */
+const UNENGAGED_BOOST_WINDOW_DAYS = 3;
+
+/**
  * Random spread, in days, added to each priority.
  *
  * Without this the feed becomes a strict due-date ordering, which loses the
@@ -135,9 +147,15 @@ function priorityOf(
   rng: () => number
 ): number {
   let score = (now - state.due) / DAY_MS;
+
   if (state.unengagedAt !== undefined) {
-    score += UNENGAGED_BOOST_DAYS;
+    const ageDays = (now - state.unengagedAt) / DAY_MS;
+    const freshness = 1 - ageDays / UNENGAGED_BOOST_WINDOW_DAYS;
+    if (freshness > 0) {
+      score += UNENGAGED_BOOST_DAYS * freshness;
+    }
   }
+
   return score + rng() * PRIORITY_JITTER_DAYS;
 }
 

@@ -376,6 +376,31 @@ test('a skipped-but-never-reviewed note does not dominate the feed', () => {
   );
 });
 
+test('the unengaged boost fades instead of lasting forever', () => {
+  // `unengagedAt` is only cleared by a real review, so a permanent boost would
+  // eventually apply to nearly every note and cancel itself out.
+  const winner = (unengagedAt: number | undefined): string => {
+    const candidates = previews(2);
+    const states: Record<string, NoteSrsState> = {
+      // Both equally overdue, so the boost is what decides.
+      'n0.md': state({ due: NOW - 5 * DAY_MS }),
+      'n1.md': state({ due: NOW - 5 * DAY_MS, unengagedAt }),
+    };
+    return selectBatch(candidates, [], 1, NOW, {
+      algorithm: 'fsrs',
+      states,
+      rng: () => 0,
+    })[0]!.path;
+  };
+
+  assert.equal(winner(NOW - 60_000), 'n1.md', 'freshly skipped still wins');
+  assert.equal(
+    winner(NOW - 30 * DAY_MS),
+    'n0.md',
+    'a skip from long ago no longer carries any bonus'
+  );
+});
+
 test('scheduling with no state at all behaves like a shuffle', () => {
   const candidates = previews(100);
   const selected = selectBatch(candidates, [], 20, NOW, {

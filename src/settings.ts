@@ -533,6 +533,8 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
+    const settings = this.plugin.data.settings;
+
     configureHeader(new Setting(containerEl));
 
     const batchSizeSetting = new Setting(containerEl)
@@ -771,6 +773,121 @@ export class DoomscrollSettingTab extends PluginSettingTab {
           this.renderExcludedFolders(excludedFoldersList);
         })
       );
+
+    // ─── Resurfacing ─────────────────────────────────────────────────────────
+    // Mirrors `resurfacingSettings()`. This path exists for Obsidian versions
+    // that predate the declarative settings API; without it those users would
+    // see no resurfacing controls at all.
+    new Setting(containerEl).setName('Resurfacing').setHeading();
+
+    new Setting(containerEl)
+      .setName('Algorithm')
+      .setDesc(
+        'Decide which notes resurface and when. Off keeps the original shuffled feed and writes nothing.'
+      )
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOptions(ALGORITHM_OPTIONS)
+          .setValue(settings.algorithm)
+          .onChange(async (value) => {
+            if (!isAlgorithmId(value)) return;
+            settings.algorithm = value;
+            await this.plugin.saveSettingsAndRefreshViews();
+            // The controls below depend on the chosen algorithm, so the page
+            // has to be rebuilt rather than merely re-read.
+            this.display();
+          })
+      );
+
+    if (settings.algorithm !== 'off') {
+      new Setting(containerEl)
+        .setName('Grading')
+        .setDesc('How a note gets rated as you scroll past it')
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOptions(GRADING_MODE_OPTIONS)
+            .setValue(settings.gradingMode)
+            .onChange(async (value) => {
+              if (!isGradingMode(value)) return;
+              settings.gradingMode = value;
+              await this.plugin.saveSettingsAndRefreshViews();
+              this.display();
+            })
+        );
+
+      if (settings.gradingMode !== 'manual') {
+        new Setting(containerEl)
+          .setName('Automatic grading sensitivity')
+          .setDesc(
+            'How much evidence counts as engagement. Only ever rates a note as engaged; it never records a failure.'
+          )
+          .addDropdown((dropdown) =>
+            dropdown
+              .addOptions(SENSITIVITY_OPTIONS)
+              .setValue(settings.sensitivity)
+              .onChange(async (value) => {
+                if (!isSensitivity(value)) return;
+                settings.sensitivity = value;
+                await this.plugin.saveSettingsAndRefreshViews();
+              })
+          );
+      }
+
+      if (settings.algorithm === 'fsrs') {
+        new Setting(containerEl)
+          .setName('Desired retention')
+          .setDesc(
+            'Target chance of still remembering a note when it returns. Higher means shorter intervals and many more reviews; 0.85-0.90 suits most people.'
+          )
+          .addSlider((slider) =>
+            slider
+              .setLimits(REQUEST_RETENTION_MIN, REQUEST_RETENTION_MAX, 0.01)
+              .setValue(settings.fsrsTunables.requestRetention)
+              .setDynamicTooltip()
+              .onChange(async (value) => {
+                settings.fsrsTunables = {
+                  ...settings.fsrsTunables,
+                  requestRetention: normalizeRetention(value),
+                };
+                await this.plugin.saveSettingsAndRefreshViews();
+              })
+          );
+
+        new Setting(containerEl)
+          .setName('Maximum interval')
+          .setDesc('Longest gap in days before a note is shown again')
+          .addText((text) =>
+            text
+              .setValue(String(settings.fsrsTunables.maximumInterval))
+              .onChange(async (value) => {
+                const parsed = Number(value);
+                if (!Number.isFinite(parsed)) return;
+                settings.fsrsTunables = {
+                  ...settings.fsrsTunables,
+                  maximumInterval: normalizeMaximumInterval(parsed),
+                };
+                await this.plugin.saveSettingsAndRefreshViews();
+              })
+          );
+
+        new Setting(containerEl)
+          .setName('Fuzz due dates')
+          .setDesc(
+            'Spread due dates slightly so notes do not all return on the same day'
+          )
+          .addToggle((toggle) =>
+            toggle
+              .setValue(settings.fsrsTunables.enableFuzz)
+              .onChange(async (value) => {
+                settings.fsrsTunables = {
+                  ...settings.fsrsTunables,
+                  enableFuzz: value,
+                };
+                await this.plugin.saveSettingsAndRefreshViews();
+              })
+          );
+      }
+    }
   }
 
   private renderExcludedFolders(container: HTMLElement): void {

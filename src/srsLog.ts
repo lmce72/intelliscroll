@@ -47,6 +47,19 @@ const SNAPSHOT_VERSION = 1;
  */
 const COMPACT_THRESHOLD_LINES = 500;
 
+/**
+ * Ignore a repeat "unengaged" report for a note marked this recently.
+ *
+ * Tearing a batch down marks every visible-but-unengaged card, and batches are
+ * torn down on every reshuffle, settings change and re-render. Without this the
+ * log would gain a duplicate line per visible card per re-render, and the
+ * priority marker would be pushed forward indefinitely instead of recording
+ * when the note was actually skipped. The window matches the selection
+ * cooldown, so a note cannot be re-shown before its marker is due to be
+ * refreshed anyway.
+ */
+const UNENGAGED_DEDUPE_MS = 30 * 60 * 1000;
+
 const LOG_PREFIX = '[intelliscroll/srs]';
 
 // One switch governs every line this module prints, so the plugin can silence
@@ -329,6 +342,12 @@ export class SrsStore {
   ): Promise<void> {
     const existing = this.states[path];
     if (existing) {
+      if (
+        existing.unengagedAt !== undefined &&
+        now - existing.unengagedAt < UNENGAGED_DEDUPE_MS
+      ) {
+        return;
+      }
       this.states[path] = { ...existing, unengagedAt: now };
     } else {
       this.states[path] = {

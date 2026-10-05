@@ -260,6 +260,38 @@ test('an unreadable snapshot degrades to replaying the whole log', async () => {
   assert.equal(store.getState('a.md')!.due, NOW + 1000);
 });
 
+test('a repeat unengaged report inside the dedupe window is ignored', async () => {
+  const adapter = new FakeAdapter();
+  const store = makeStore(adapter);
+  await store.load();
+
+  const logLines = (): number =>
+    (adapter.files.get(`${DIR}/srs-log.ndjson`) ?? '')
+      .split('\n')
+      .filter((line) => line.trim().length > 0).length;
+
+  await store.recordUnengaged('a.md', NOW, 'fsrs');
+  await store.flush();
+  assert.equal(logLines(), 1);
+
+  // Batch teardown re-reports the same visible card on every re-render.
+  await store.recordUnengaged('a.md', NOW + 60_000, 'fsrs');
+  await store.flush();
+  assert.equal(logLines(), 1, 'the duplicate is not logged');
+  assert.equal(
+    store.getState('a.md')!.unengagedAt,
+    NOW,
+    'and the marker is not pushed forward'
+  );
+
+  // Once the window passes it records again.
+  const later = NOW + 31 * 60 * 1000;
+  await store.recordUnengaged('a.md', later, 'fsrs');
+  await store.flush();
+  assert.equal(logLines(), 2);
+  assert.equal(store.getState('a.md')!.unengagedAt, later);
+});
+
 test('content hashing is stable and changes when the note changes', () => {
   const a = SrsStore.hashContent('hello world');
   assert.equal(a, SrsStore.hashContent('hello world'), 'deterministic');
