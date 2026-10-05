@@ -580,3 +580,12 @@
 }
 
 
+
+/* On mobile the control moves to the left corner: the bottom-right is where
+   Obsidian keeps its own mobile affordances, and the left is the easier reach.
+   Keyed off the class Obsidian puts on the body for the platform, so this
+   follows the app rather than guessing from the viewport width. */
+.is-mobile .doomscroll-note-float {
+  right: auto;
+  left: 1rem;
+}
