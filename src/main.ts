@@ -1,5 +1,6 @@
 import { Plugin, normalizePath } from 'obsidian';
 import {
+  isLanguage,
   normalizeRetention,
   type AlgorithmPreset,
   type DisplayPreset,
@@ -18,6 +19,7 @@ import {
   resolveActiveIds,
 } from './presets';
 import { DEFAULT_SETTINGS, DoomscrollSettingTab } from './settings';
+import { setLanguage } from './i18n';
 import { Indexer } from './indexer';
 import { SrsStore, logSrsError } from './srsLog';
 import { DoomscrollView, VIEW_TYPE_DOOMSCROLL } from './view';
@@ -63,6 +65,9 @@ export default class DoomscrollPlugin extends Plugin {
     if (!hadPresets) activeIds.activeTotalPresetId = presets.totals[0]!.id;
 
     const settings: PluginSettings = {
+      language: isLanguage(loadedSettings.language)
+        ? loadedSettings.language
+        : DEFAULT_SETTINGS.language,
       batchSize:
         typeof loadedSettings.batchSize === 'number' &&
         Number.isFinite(loadedSettings.batchSize) &&
@@ -76,6 +81,10 @@ export default class DoomscrollPlugin extends Plugin {
       presets,
       ...activeIds,
     };
+
+    // Point the translator before anything renders, so the very first paint is
+    // already in the right language rather than flashing English.
+    setLanguage(settings.language);
 
     this.data = {
       settings,
@@ -370,6 +379,21 @@ export default class DoomscrollPlugin extends Plugin {
     this.sessionFilter = null;
     await this.saveSettingsAndRefreshViews();
     return preset.id;
+  }
+
+  /**
+   * Rebuild every open feed from scratch.
+   *
+   * Needed when something changes the *chrome* rather than the batch — the
+   * normal settings refresh re-renders only the cards, so translated header
+   * labels and aria-labels would otherwise stay in the previous language.
+   */
+  rebuildFeedViews(): void {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DOOMSCROLL);
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view instanceof DoomscrollView) view.rebuildForLanguageChange();
+    }
   }
 
   async saveSettings(): Promise<void> {

@@ -24,6 +24,7 @@ import {
   readPresetControl,
   writePresetControl,
 } from './presetSettings';
+import { setLanguage, t } from './i18n';
 import {
   FSRS_DEFAULT_TUNABLES,
   MAXIMUM_INTERVAL_MAX,
@@ -32,6 +33,7 @@ import {
   REQUEST_RETENTION_MIN,
   isAlgorithmId,
   isGradingMode,
+  isLanguage,
   isPreviewSize,
   isRuleMode,
   isSensitivity,
@@ -112,6 +114,7 @@ const DEFAULT_PRESETS = defaultLibrary();
  * defaults are behaviour-preserving.
  */
 export const DEFAULT_SETTINGS: PluginSettings = {
+  language: 'auto',
   batchSize: 20,
   infiniteScroll: false,
   presets: DEFAULT_PRESETS,
@@ -132,12 +135,27 @@ export class DoomscrollSettingTab extends PluginSettingTab {
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [
       {
-        name: 'Doomscroll settings',
+        name: t('settings.header.title'),
         render: (setting) => configureHeader(setting),
       },
       {
-        name: 'Batch size',
-        desc: 'Number of cards to show per reshuffle',
+        // Placed first: someone who cannot read the page needs this before
+        // anything else on it.
+        name: t('settings.language.name'),
+        desc: t('settings.language.desc'),
+        control: {
+          type: 'dropdown',
+          key: 'language',
+          options: {
+            auto: t('settings.language.option.auto'),
+            en: t('settings.language.option.en'),
+            zh: t('settings.language.option.zh'),
+          },
+        },
+      },
+      {
+        name: t('settings.batchSize.name'),
+        desc: t('settings.batchSize.desc'),
         control: {
           type: 'dropdown',
           key: 'batchSize',
@@ -480,6 +498,8 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         return settings.fsrsTunables.maximumInterval;
       case 'enableFuzz':
         return settings.fsrsTunables.enableFuzz;
+      case 'language':
+        return this.plugin.data.settings.language;
       case 'activeFilterPreset':
         return this.plugin.data.settings.activeFilterPresetId;
       case 'folderMode':
@@ -615,6 +635,16 @@ export class DoomscrollSettingTab extends PluginSettingTab {
           ...algorithm.fsrsTunables,
           enableFuzz: value,
         };
+        break;
+      case 'language':
+        if (!isLanguage(value)) return;
+        rootSettings.language = value;
+        // Point the translator before saving, so the refresh below re-renders
+        // the page in the newly chosen language rather than the old one.
+        setLanguage(value);
+        // The feed's header labels are built once and are not touched by a
+        // normal settings refresh, so they need an explicit rebuild.
+        this.plugin.rebuildFeedViews();
         break;
       case 'activeFilterPreset':
         if (typeof value !== 'string') return;
@@ -1066,7 +1096,7 @@ export class DoomscrollSettingTab extends PluginSettingTab {
 function configureHeader(setting: Setting): void {
   setting
     .setClass('doomscroll-settings-header')
-    .setName('Doomscroll settings')
+    .setName(t('settings.header.title'))
     .setHeading()
     .addButton((button) =>
       button.setButtonText('GitHub').onClick(() => {

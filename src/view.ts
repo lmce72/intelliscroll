@@ -36,6 +36,7 @@ import { SrsStore, logSrsError } from './srsLog';
 import { passesFileTypeRule } from './filtering';
 import { pickCardIndex } from './navigation';
 import { ShortcutsModal } from './help';
+import { t } from './i18n';
 import { recordView } from './history';
 import { removePathFromBatches } from './batches';
 import {
@@ -56,12 +57,16 @@ const RATING_ICONS: Record<Rating, string> = {
   easy: 'zap',
 };
 
-const RATING_LABELS: Record<Rating, string> = {
-  again: 'Again — I did not recall this',
-  hard: 'Hard — recalled with difficulty',
-  good: 'Good — recalled',
-  easy: 'Easy — trivial',
-};
+/**
+ * Label for a rating.
+ *
+ * Resolved on every call rather than stored in a module-level map: a constant
+ * map would freeze whichever language was active when this module was first
+ * imported, which is not necessarily the one the user ends up with.
+ */
+function ratingLabel(rating: Rating): string {
+  return t(`view.rating.${rating}`);
+}
 
 const RATING_ORDER: readonly Rating[] = ['again', 'hard', 'good', 'easy'];
 
@@ -103,12 +108,12 @@ class PresetNameModal extends Modal {
     new Setting(this.contentEl)
       .addButton((button) =>
         button
-          .setButtonText('Save')
+          .setButtonText(t('view.modal.save'))
           .setCta()
           .onClick(() => this.submit())
       )
       .addButton((button) =>
-        button.setButtonText('Cancel').onClick(() => this.close())
+        button.setButtonText(t('view.modal.cancel')).onClick(() => this.close())
       );
 
     input.inputEl.focus();
@@ -436,7 +441,7 @@ export class DoomscrollView extends ItemView {
   }
 
   getDisplayText(): string {
-    return 'Doomscroll';
+    return t('view.displayText');
   }
 
   getIcon(): string {
@@ -524,6 +529,19 @@ export class DoomscrollView extends ItemView {
     await this.render();
   }
 
+  /**
+   * Rebuild the whole view, header included.
+   *
+   * A settings refresh deliberately re-renders only the batch, which is right
+   * for filter and schedule changes. But the header's labels are built once, in
+   * `render()`, and never revisited — so a language change would leave the feed
+   * reading in the old language until the pane was closed and reopened.
+   */
+  rebuildForLanguageChange(): void {
+    this.hasRendered = false;
+    void this.render();
+  }
+
   private resumeRenderedView(): void {
     const body = this.containerEl.querySelector<HTMLElement>('.doomscroll-body');
     if (!body) return;
@@ -539,7 +557,7 @@ export class DoomscrollView extends ItemView {
       if (
         !path ||
         !this.viewedPathsInBatch.has(path) ||
-        snippet?.textContent === 'Loading preview…'
+        snippet?.textContent === t('view.status.loading')
       ) {
         this.cardObserver?.observe(card);
       }
@@ -666,7 +684,7 @@ export class DoomscrollView extends ItemView {
     const header = this.containerEl.createDiv('doomscroll-header');
 
     const title = header.createEl('h2');
-    title.textContent = 'IntelliScroll';
+    title.textContent = t('view.title');
     title.className = 'doomscroll-title';
 
     this.refreshStatusEl = header.createDiv('doomscroll-refresh-status');
@@ -676,7 +694,7 @@ export class DoomscrollView extends ItemView {
     // Reshuffle button (refresh icon)
     const reshuffleBtn = controls.createEl('button');
     reshuffleBtn.className = 'doomscroll-reshuffle-btn';
-    reshuffleBtn.setAttribute('aria-label', 'Reshuffle');
+    reshuffleBtn.setAttribute('aria-label', t('view.action.reshuffle'));
     setIcon(reshuffleBtn, 'refresh-cw');
     reshuffleBtn.addEventListener('click', () => {
       void this.showNewBatch();
@@ -685,7 +703,7 @@ export class DoomscrollView extends ItemView {
     // Previous batch button
     this.backButton = controls.createEl('button');
     this.backButton.className = 'doomscroll-back-btn';
-    this.backButton.setAttribute('aria-label', 'Previous card set');
+    this.backButton.setAttribute('aria-label', t('view.action.back'));
     setIcon(this.backButton, 'arrow-left');
     this.backButton.addEventListener('click', () => {
       void this.showPreviousBatch();
@@ -728,7 +746,7 @@ export class DoomscrollView extends ItemView {
     // Settings button
     const settingsBtn = controls.createEl('button');
     settingsBtn.className = 'doomscroll-settings-btn';
-    settingsBtn.setAttribute('aria-label', 'Settings');
+    settingsBtn.setAttribute('aria-label', t('view.action.settings'));
     setIcon(settingsBtn, 'settings');
     settingsBtn.addEventListener('click', () => {
       const { setting } = this.plugin.app as unknown as AppWithSettings;
@@ -739,7 +757,7 @@ export class DoomscrollView extends ItemView {
     // Body - scrollable container
     const bodyContainer = this.containerEl.createDiv('doomscroll-body');
     bodyContainer.setAttribute('role', 'feed');
-    bodyContainer.setAttribute('aria-label', 'IntelliScroll');
+    bodyContainer.setAttribute('aria-label', t('view.feed.label'));
     bodyContainer.tabIndex = 0;
     bodyContainer.addEventListener(
       'scroll',
@@ -767,7 +785,7 @@ export class DoomscrollView extends ItemView {
       ? bodyContainer.createDiv('doomscroll-loading')
       : null;
     if (loadingEl) {
-      loadingEl.textContent = 'Indexing your vault…';
+      loadingEl.textContent = t('view.status.indexingVault');
     }
 
     let indexRefreshed = false;
@@ -777,7 +795,7 @@ export class DoomscrollView extends ItemView {
       indexRefreshed = await this.plugin.indexer.refreshIfStale(
         (done, total) => {
           if (loadingEl) {
-            loadingEl.textContent = `Indexed ${done}/${total}`;
+            loadingEl.textContent = t('view.status.indexed', { done, total });
           }
         },
         needsInitialIndex
@@ -789,7 +807,7 @@ export class DoomscrollView extends ItemView {
     } catch (error) {
       console.error('Error indexing vault:', error);
       if (loadingEl) {
-        loadingEl.textContent = 'Error indexing vault';
+        loadingEl.textContent = t('view.status.indexError');
       }
     } finally {
       this.setRefreshing(false);
@@ -966,8 +984,8 @@ export class DoomscrollView extends ItemView {
     );
     const reshuffleBtn = reshuffleSection.createEl('button');
     reshuffleBtn.className = 'doomscroll-reshuffle-end-btn';
-    reshuffleBtn.textContent = 'Reshuffle';
-    reshuffleBtn.dataset.defaultLabel = 'Reshuffle';
+    reshuffleBtn.textContent = t('view.reshuffle.end');
+    reshuffleBtn.dataset.defaultLabel = t('view.reshuffle.end');
     reshuffleBtn.addEventListener('click', () => {
       void this.showNewBatch();
     });
@@ -1011,8 +1029,8 @@ export class DoomscrollView extends ItemView {
     const active = this.hasSessionOverrides();
     this.tuneButton.toggleClass('mod-cta', active);
     const label = active
-      ? 'Tune resurfacing (temporary changes active)'
-      : 'Tune resurfacing';
+      ? t('view.action.tuneActive')
+      : t('view.action.tune');
     this.tuneButton.setAttribute('aria-label', label);
     this.tuneButton.setAttribute('title', label);
   }
@@ -1107,7 +1125,7 @@ export class DoomscrollView extends ItemView {
     // what is actually in force.
     const overridden = this.hasSessionOverrides();
 
-    menu.addItem((item) => item.setTitle('Algorithm preset').setIsLabel(true));
+    menu.addItem((item) => item.setTitle(t('view.menu.algorithmPreset')).setIsLabel(true));
     for (const preset of library.algorithms) {
       menu.addItem((item) =>
         item
@@ -1123,7 +1141,7 @@ export class DoomscrollView extends ItemView {
     }
 
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle('Display preset').setIsLabel(true));
+    menu.addItem((item) => item.setTitle(t('view.menu.displayPreset')).setIsLabel(true));
     for (const preset of library.displays) {
       menu.addItem((item) =>
         item
@@ -1140,7 +1158,7 @@ export class DoomscrollView extends ItemView {
 
     if (library.totals.length > 0) {
       menu.addSeparator();
-      menu.addItem((item) => item.setTitle('Total preset').setIsLabel(true));
+      menu.addItem((item) => item.setTitle(t('view.menu.totalPreset')).setIsLabel(true));
       for (const preset of library.totals) {
         menu.addItem((item) =>
           item
@@ -1158,11 +1176,15 @@ export class DoomscrollView extends ItemView {
     }
 
     menu.addSeparator();
-    menu.addItem((item) => item.setTitle('Algorithm').setIsLabel(true));
+    menu.addItem((item) => item.setTitle(t('view.menu.algorithm')).setIsLabel(true));
     for (const candidate of allAlgorithms()) {
       menu.addItem((item) =>
         item
-          .setTitle(candidate.id === 'off' ? 'Off (shuffled feed)' : candidate.label)
+          .setTitle(
+            candidate.id === 'off'
+              ? t('view.algorithm.off')
+              : candidate.label
+          )
           .setChecked(algorithm === candidate.id)
           .onClick(() => this.applySession({ algorithm: candidate.id }))
       );
@@ -1170,11 +1192,11 @@ export class DoomscrollView extends ItemView {
 
     if (algorithm !== 'off') {
       menu.addSeparator();
-      menu.addItem((item) => item.setTitle('Grading').setIsLabel(true));
+      menu.addItem((item) => item.setTitle(t('view.menu.grading')).setIsLabel(true));
       const gradingOptions: Array<[GradingMode, string]> = [
-        ['auto', 'Automatic only'],
-        ['hybrid', 'Automatic, with manual override'],
-        ['manual', 'Manual only'],
+        ['auto', t('view.grading.auto')],
+        ['hybrid', t('view.grading.hybrid')],
+        ['manual', t('view.grading.manual')],
       ];
       for (const [id, label] of gradingOptions) {
         menu.addItem((item) =>
@@ -1188,12 +1210,12 @@ export class DoomscrollView extends ItemView {
       if (gradingMode !== 'manual') {
         menu.addSeparator();
         menu.addItem((item) =>
-          item.setTitle('Auto-grading sensitivity').setIsLabel(true)
+          item.setTitle(t('view.menu.sensitivity')).setIsLabel(true)
         );
         const sensitivityOptions: Array<[Sensitivity, string]> = [
-          ['conservative', 'Conservative'],
-          ['medium', 'Medium'],
-          ['aggressive', 'Aggressive'],
+          ['conservative', t('view.sensitivity.conservative')],
+          ['medium', t('view.sensitivity.medium')],
+          ['aggressive', t('view.sensitivity.aggressive')],
         ];
         for (const [id, label] of sensitivityOptions) {
           menu.addItem((item) =>
@@ -1209,7 +1231,7 @@ export class DoomscrollView extends ItemView {
         const tunables = this.effectiveTunables();
         menu.addSeparator();
         menu.addItem((item) =>
-          item.setTitle('Desired retention').setIsLabel(true)
+          item.setTitle(t('view.menu.retention')).setIsLabel(true)
         );
         for (const retention of [0.8, 0.85, 0.9, 0.95]) {
           menu.addItem((item) =>
@@ -1229,7 +1251,7 @@ export class DoomscrollView extends ItemView {
         menu.addSeparator();
         menu.addItem((item) =>
           item
-            .setTitle('Fuzz due dates')
+            .setTitle(t('view.menu.fuzz'))
             .setChecked(tunables.enableFuzz)
             .onClick(() =>
               this.applySession({
@@ -1244,7 +1266,7 @@ export class DoomscrollView extends ItemView {
       menu.addSeparator();
       menu.addItem((item) =>
         item
-          .setTitle('Reset to saved settings')
+          .setTitle(t('view.menu.reset'))
           .setIcon('rotate-ccw')
           .onClick(() => this.applySession({ reset: true }))
       );
@@ -1372,8 +1394,8 @@ export class DoomscrollView extends ItemView {
     if (this.filterButton) {
       this.filterButton.toggleClass('mod-cta', overridden);
       const label = overridden
-        ? 'Filter preset (temporary changes active)'
-        : 'Filter preset';
+        ? t('view.action.filterActive')
+        : t('view.action.filter');
       this.filterButton.setAttribute('aria-label', label);
       this.filterButton.setAttribute('title', label);
     }
@@ -1381,8 +1403,8 @@ export class DoomscrollView extends ItemView {
     if (this.savePresetButton) {
       this.savePresetButton.disabled = !overridden;
       const label = overridden
-        ? 'Save the temporary filter as a new preset'
-        : 'Nothing to save: no temporary filter changes';
+        ? t('view.action.saveEnabled')
+        : t('view.action.saveDisabled');
       this.savePresetButton.setAttribute('aria-label', label);
       this.savePresetButton.setAttribute('title', label);
     }
@@ -1394,7 +1416,7 @@ export class DoomscrollView extends ItemView {
     const activeId = this.plugin.data.settings.activeFilterPresetId;
     const overridden = this.plugin.hasSessionFilterOverride();
 
-    menu.addItem((item) => item.setTitle('Filter preset').setIsLabel(true));
+    menu.addItem((item) => item.setTitle(t('view.menu.filterPreset')).setIsLabel(true));
     for (const preset of library.filters) {
       menu.addItem((item) =>
         item
@@ -1412,17 +1434,17 @@ export class DoomscrollView extends ItemView {
     if (overridden) {
       menu.addSeparator();
       menu.addItem((item) =>
-        item.setTitle('Temporary filter in force').setIsLabel(true)
+        item.setTitle(t('view.menu.temporaryFilter')).setIsLabel(true)
       );
       menu.addItem((item) =>
         item
-          .setTitle('Save as a new preset…')
+          .setTitle(t('view.menu.saveAsPreset'))
           .setIcon('save')
           .onClick(() => this.promptSaveFilterPreset())
       );
       menu.addItem((item) =>
         item
-          .setTitle('Discard temporary changes')
+          .setTitle(t('view.menu.discardTemporary'))
           .setIcon('rotate-ccw')
           .onClick(() => this.discardFilterOverride())
       );
@@ -1452,11 +1474,18 @@ export class DoomscrollView extends ItemView {
       (preset) =>
         preset.id === this.plugin.data.settings.activeFilterPresetId
     );
-    const suggestion = `${activeFilter?.name ?? 'Filter'} (temporary)`;
+    const suggestion = t('view.modal.savePreset.suggestion', {
+      name: activeFilter?.name ?? t('view.modal.savePreset.fallbackName'),
+    });
 
-    new PresetNameModal(this.app, 'Save filter preset', suggestion, (name) => {
-      void this.saveFilterPreset(name);
-    }).open();
+    new PresetNameModal(
+      this.app,
+      t('view.modal.savePreset.title'),
+      suggestion,
+      (name) => {
+        void this.saveFilterPreset(name);
+      }
+    ).open();
   }
 
   private async saveFilterPreset(name: string): Promise<void> {
@@ -1485,8 +1514,9 @@ export class DoomscrollView extends ItemView {
       cls: 'clickable-icon doomscroll-card-rate',
     });
     button.dataset.ratingPath = preview.path;
-    button.setAttribute('aria-label', `Rate ${preview.title}`);
-    button.setAttribute('title', `Rate ${preview.title}`);
+    const rateLabel = t('view.action.rate', { title: preview.title });
+    button.setAttribute('aria-label', rateLabel);
+    button.setAttribute('title', rateLabel);
     setIcon(button, 'gauge');
 
     button.addEventListener('click', (event) => {
@@ -1499,11 +1529,11 @@ export class DoomscrollView extends ItemView {
   private showRatingMenu(event: MouseEvent, preview: NotePreview): void {
     const menu = new Menu();
 
-    menu.addItem((item) => item.setTitle('Rate this note').setIsLabel(true));
+    menu.addItem((item) => item.setTitle(t('view.menu.rating')).setIsLabel(true));
     for (const rating of RATING_ORDER) {
       menu.addItem((item) =>
         item
-          .setTitle(RATING_LABELS[rating])
+          .setTitle(ratingLabel(rating))
           .setIcon(RATING_ICONS[rating])
           .onClick(() => {
             void this.recordExplicitRating(preview, rating);
@@ -1569,8 +1599,9 @@ export class DoomscrollView extends ItemView {
     if (!button) return;
 
     setIcon(button, RATING_ICONS[rating]);
-    button.setAttribute('aria-label', `Rated ${rating}`);
-    button.setAttribute('title', `Rated ${rating}`);
+    const ratedLabel = t('view.action.rated', { rating: ratingLabel(rating) });
+    button.setAttribute('aria-label', ratedLabel);
+    button.setAttribute('title', ratedLabel);
   }
 
   private createCardObserver(container: HTMLElement): IntersectionObserver {
@@ -1651,7 +1682,7 @@ export class DoomscrollView extends ItemView {
     }
 
     this.infiniteScrollLoading = true;
-    sentinel.textContent = 'Loading more notes…';
+    sentinel.textContent = t('view.status.loadingMore');
 
     try {
       const loadedPaths = new Set(
@@ -1676,7 +1707,7 @@ export class DoomscrollView extends ItemView {
 
       if (nextBatch.length === 0) {
         this.infiniteScrollExhausted = true;
-        sentinel.textContent = 'No more notes';
+        sentinel.textContent = t('view.status.noMore');
         return;
       }
 
@@ -1703,7 +1734,7 @@ export class DoomscrollView extends ItemView {
 
       if (nextBatch.length < INFINITE_SCROLL_CHUNK_SIZE) {
         this.infiniteScrollExhausted = true;
-        sentinel.textContent = 'No more notes';
+        sentinel.textContent = t('view.status.noMore');
       } else {
         sentinel.textContent = '';
       }
@@ -1810,7 +1841,7 @@ export class DoomscrollView extends ItemView {
   private setRefreshing(refreshing: boolean): void {
     this.isRefreshing = refreshing;
     if (this.refreshStatusEl) {
-      this.refreshStatusEl.textContent = refreshing ? 'Indexing…' : '';
+      this.refreshStatusEl.textContent = refreshing ? t('view.status.indexing') : '';
     }
 
     const buttons = this.containerEl.querySelectorAll<HTMLButtonElement>(
@@ -1819,8 +1850,8 @@ export class DoomscrollView extends ItemView {
     buttons.forEach((button) => {
       button.disabled = refreshing;
       if (button.classList.contains('doomscroll-reshuffle-end-btn')) {
-        const defaultLabel = button.dataset.defaultLabel ?? 'Reshuffle';
-        button.textContent = refreshing ? 'Indexing…' : defaultLabel;
+        const defaultLabel = button.dataset.defaultLabel ?? t('view.reshuffle.end');
+        button.textContent = refreshing ? t('view.status.indexing') : defaultLabel;
       }
     });
   }
@@ -1917,7 +1948,7 @@ export class DoomscrollView extends ItemView {
 
     const clone = renderedRoot.cloneNode(true) as HTMLElement;
     if (clone.childNodes.length === 0) {
-      snippetEl.textContent = '(no preview text)';
+      snippetEl.textContent = t('view.card.noPreview');
       return;
     }
     snippetEl.replaceChildren(...Array.from(clone.childNodes));
@@ -2012,7 +2043,7 @@ export class DoomscrollView extends ItemView {
       const pdf = pdfContainer.createEl('iframe');
       pdf.className = 'doomscroll-card-pdf';
       pdf.dataset.path = preview.path;
-      pdf.title = `${preview.title} preview`;
+      pdf.title = t('view.card.attachmentPreview', { title: preview.title });
       this.setupPdfLazyLoad(pdf);
     }
 
@@ -2021,7 +2052,7 @@ export class DoomscrollView extends ItemView {
       const video = videoContainer.createEl('video');
       video.className = 'doomscroll-card-video';
       video.dataset.path = preview.path;
-      video.title = `${preview.title} preview`;
+      video.title = t('view.card.attachmentPreview', { title: preview.title });
       video.muted = true;
       video.loop = true;
       video.playsInline = true;
@@ -2034,7 +2065,7 @@ export class DoomscrollView extends ItemView {
     this.setSnippetPreviewSize(snippetEl);
     snippetEl.textContent = preview.attachment
       ? attachmentLabel(preview.path)
-      : 'Loading preview…';
+      : t('view.status.loading');
     this.renderCardFrontmatter(card, preview, 'before');
     this.renderCardFrontmatter(card, preview, 'after');
 
@@ -2096,7 +2127,7 @@ export class DoomscrollView extends ItemView {
 
     const file = this.plugin.app.vault.getAbstractFileByPath(preview.path);
     if (!(file instanceof TFile)) {
-      if (isCurrent()) snippetEl.textContent = '(no preview text)';
+      if (isCurrent()) snippetEl.textContent = t('view.card.noPreview');
       return;
     }
 
@@ -2162,7 +2193,7 @@ export class DoomscrollView extends ItemView {
     } catch (error) {
       console.error(`Error rendering preview for ${file.path}:`, error);
       if (isCurrent()) {
-        snippetEl.textContent = preview.snippet ?? '(no preview text)';
+        snippetEl.textContent = preview.snippet ?? t('view.card.noPreview');
       }
     }
   }

@@ -265,7 +265,28 @@ export function isTotalPreset(value: unknown): value is TotalPreset {
   );
 }
 
+/**
+ * The plugin's interface language. `auto` follows Obsidian's own setting.
+ *
+ * Declared here rather than in `i18n.ts` so this module stays import-free —
+ * `i18n.ts` imports from here, which keeps the dependency pointing one way.
+ */
+export type Language = 'auto' | 'en' | 'zh';
+
+export const LANGUAGES: readonly Language[] = ['auto', 'en', 'zh'];
+
+export function isLanguage(value: unknown): value is Language {
+  return value === 'auto' || value === 'en' || value === 'zh';
+}
+
 export interface PluginSettings {
+  /**
+   * Not a preset group either: language is about reading the interface, not
+   * about which notes appear, and needing to switch a preset to read the
+   * settings in your own language would be absurd.
+   */
+  language: Language;
+
   /**
    * Feed mechanics. These are not part of any preset group: they do not affect
    * which notes are eligible, only how many arrive at once.
