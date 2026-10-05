@@ -238,6 +238,20 @@ export function ensureLibrary(input: unknown): PresetLibrary {
       displayIds.has(total.displayId)
   );
 
+  // Every group is guaranteed non-empty, totals included. Without this a
+  // corrupt or half-written file would leave the composite-preset feature
+  // looking as though it had simply vanished. This cannot undo a deliberate
+  // deletion, because `removePreset` refuses to empty a group either.
+  if (library.totals.length === 0) {
+    library.totals.push({
+      id: newPresetId(),
+      name: DEFAULT_PRESET_NAME,
+      filterId: library.filters[0]!.id,
+      algorithmId: library.algorithms[0]!.id,
+      displayId: library.displays[0]!.id,
+    });
+  }
+
   return library;
 }
 
