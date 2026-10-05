@@ -312,9 +312,20 @@ export default class DoomscrollPlugin extends Plugin {
     kind: 'filter' | 'algorithm' | 'display',
     id: string
   ): Promise<void> {
-    if (kind === 'filter') this.data.settings.activeFilterPresetId = id;
-    else if (kind === 'algorithm') this.data.settings.activeAlgorithmPresetId = id;
-    else this.data.settings.activeDisplayPresetId = id;
+    if (kind === 'filter') {
+      this.data.settings.activeFilterPresetId = id;
+      // Discard that group's temporary override. Choosing a preset is an
+      // explicit statement of what to apply; leaving an override in place would
+      // mean clicking a preset changes what is saved but nothing the user can
+      // see, which reads as the click having failed.
+      this.sessionFilter = null;
+    } else if (kind === 'algorithm') {
+      this.data.settings.activeAlgorithmPresetId = id;
+      this.sessionAlgorithm = null;
+    } else {
+      this.data.settings.activeDisplayPresetId = id;
+      this.sessionDisplay = null;
+    }
 
     // Choosing a group by hand means the composite no longer describes what is
     // in force.
@@ -331,6 +342,11 @@ export default class DoomscrollPlugin extends Plugin {
 
     const ids = idsForTotal(this.data.settings.presets, id);
     if (!ids) return;
+
+    // A composite names a preset in every group, so it supersedes any temporary
+    // override — otherwise the override would silently outrank part of it.
+    this.clearSessionOverrides();
+
     Object.assign(this.data.settings, ids, { activeTotalPresetId: id });
     await this.saveSettingsAndRefreshViews();
   }

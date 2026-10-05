@@ -1063,6 +1063,32 @@ export class DoomscrollView extends ItemView {
   }
 
   /**
+   * Switch the saved algorithm preset from the feed header.
+   *
+   * The batch on screen was chosen under the previous scheduler, so the key is
+   * cleared to route this through the existing settings-change path, which
+   * re-rolls the batch and drops the back stack.
+   */
+  private async selectAlgorithmPreset(id: string): Promise<void> {
+    await this.plugin.selectPreset('algorithm', id);
+    this.updateTuneButton();
+    this.batchSettingsKey = null;
+    void this.refreshForCurrentSettings();
+  }
+
+  /**
+   * Switch the saved display preset.
+   *
+   * A display preset only changes how cards render, never which notes arrive,
+   * so the batch is kept and merely re-rendered.
+   */
+  private async selectDisplayPreset(id: string): Promise<void> {
+    await this.plugin.selectPreset('display', id);
+    this.updateTuneButton();
+    void this.refreshForCurrentSettings();
+  }
+
+  /**
    * The live-tuning menu.
    *
    * A flat menu with labelled sections rather than nested submenus, because
@@ -1073,7 +1099,65 @@ export class DoomscrollView extends ItemView {
     const menu = new Menu();
     const algorithm = this.effectiveAlgorithm();
     const gradingMode = this.effectiveGradingMode();
+    const library = this.plugin.data.settings.presets;
 
+    // Saved presets lead, because switching one is the everyday action; the
+    // raw controls below are the session-only fine-tuning. A tick is suppressed
+    // while a session override is active, since no saved preset then describes
+    // what is actually in force.
+    const overridden = this.hasSessionOverrides();
+
+    menu.addItem((item) => item.setTitle('Algorithm preset').setIsLabel(true));
+    for (const preset of library.algorithms) {
+      menu.addItem((item) =>
+        item
+          .setTitle(preset.name)
+          .setChecked(
+            !overridden &&
+              preset.id === this.plugin.data.settings.activeAlgorithmPresetId
+          )
+          .onClick(() => {
+            void this.selectAlgorithmPreset(preset.id);
+          })
+      );
+    }
+
+    menu.addSeparator();
+    menu.addItem((item) => item.setTitle('Display preset').setIsLabel(true));
+    for (const preset of library.displays) {
+      menu.addItem((item) =>
+        item
+          .setTitle(preset.name)
+          .setChecked(
+            !overridden &&
+              preset.id === this.plugin.data.settings.activeDisplayPresetId
+          )
+          .onClick(() => {
+            void this.selectDisplayPreset(preset.id);
+          })
+      );
+    }
+
+    if (library.totals.length > 0) {
+      menu.addSeparator();
+      menu.addItem((item) => item.setTitle('Total preset').setIsLabel(true));
+      for (const preset of library.totals) {
+        menu.addItem((item) =>
+          item
+            .setTitle(preset.name)
+            .setChecked(
+              this.plugin.data.settings.activeTotalPresetId === preset.id
+            )
+            .onClick(() => {
+              // selectTotalPreset refreshes the views itself, so the batch is
+              // re-rolled without going through the session-override path.
+              void this.plugin.selectTotalPreset(preset.id);
+            })
+        );
+      }
+    }
+
+    menu.addSeparator();
     menu.addItem((item) => item.setTitle('Algorithm').setIsLabel(true));
     for (const candidate of allAlgorithms()) {
       menu.addItem((item) =>
@@ -1348,9 +1432,9 @@ export class DoomscrollView extends ItemView {
   }
 
   private async selectFilterPreset(id: string): Promise<void> {
-    // Choosing a saved preset discards the experiment, so what is in force is
-    // exactly what the preset says. Other groups' overrides are untouched.
-    this.plugin.clearSessionFilterOverride();
+    // `selectPreset` discards that group's override itself, so choosing a saved
+    // preset leaves exactly what the preset says in force while the other
+    // groups' overrides are untouched.
     await this.plugin.selectPreset('filter', id);
     this.updatePresetButtons();
   }
