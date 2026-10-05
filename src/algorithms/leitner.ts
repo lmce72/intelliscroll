@@ -1,4 +1,3 @@
-import type { Rating } from '../types.ts';
 import { DAY_MS, makeState, payloadFor, type SchedulerAlgorithm } from './shared.ts';
 
 /**

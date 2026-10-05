@@ -14,10 +14,8 @@ import { t } from './i18n.ts';
 // Type-only on purpose: `main.ts` imports `settings.ts`, which delegates here,
 // so a runtime import of the plugin class would close the cycle.
 import type DoomscrollPlugin from './main.ts';
-import { allAlgorithms } from './algorithms/index.ts';
 import {
   activeAlgorithm,
-  activeDisplay,
   activeFilter,
   defaultAlgorithmPreset,
   defaultDisplayPreset,
@@ -155,14 +153,6 @@ export const PRESET_CONTROL_KEYS: readonly string[] = [
   ...FIXED_CONTROL_KEYS,
   ...FILE_TYPE_CONTROLS.map((entry) => entry.key),
 ];
-
-/** Algorithm ids to display names, sourced from the registry itself. */
-const ALGORITHM_OPTIONS: Record<string, string> = Object.fromEntries(
-  allAlgorithms().map((algorithm) => [
-    algorithm.id,
-    algorithm.id === 'off' ? t('presets.algorithm.option.off') : algorithm.label,
-  ])
-);
 
 // ─── Read / write ──────────────────────────────────────────────────────────
 

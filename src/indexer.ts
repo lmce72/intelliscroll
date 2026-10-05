@@ -5,7 +5,7 @@ import {
   hasMediaEmbed,
   hasTextualPreviewContent,
 } from './extract';
-import { fileCategory, isImagePath } from './media';
+import { isImagePath } from './media';
 import { matchesSearchQuery } from './search';
 import { compileFilter } from './filtering';
 

@@ -1,7 +1,6 @@
-import { Plugin, normalizePath } from 'obsidian';
+import { Plugin } from 'obsidian';
 import {
   isLanguage,
-  normalizeRetention,
   type AlgorithmPreset,
   type DisplayPreset,
   type FilterPreset,
