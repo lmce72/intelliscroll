@@ -144,9 +144,12 @@ export default class DoomscrollPlugin extends Plugin {
     // index — filters are applied at index time, so the view alone could not
     // trigger the rebuild they require. Injection also keeps the indexer
     // testable without a full plugin.
-    this.indexer = new Indexer(this.app, this.data, () =>
-      this.getEffectiveFilter()
-    );
+    this.indexer = new Indexer(this.app, this.data, () => ({
+      filter: this.getEffectiveFilter(),
+      // Lives in the display preset, but decides how images are extracted, so
+      // the index depends on it.
+      frontmatterImageProps: this.getEffectiveDisplay().frontmatterImageProps,
+    }));
 
     // Resurfacing state lives beside the plugin, not in data.json: appending a
     // line is O(1), whereas data.json is rewritten in full on every change and

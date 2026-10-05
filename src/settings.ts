@@ -11,6 +11,13 @@ import {
 import DoomscrollPlugin from './main';
 import { allAlgorithms } from './algorithms';
 import {
+  activeAlgorithm,
+  activeDisplay,
+  activeFilter,
+  defaultLibrary,
+  normalizeRule,
+} from './presets';
+import {
   FSRS_DEFAULT_TUNABLES,
   MAXIMUM_INTERVAL_MAX,
   MAXIMUM_INTERVAL_MIN,
@@ -22,6 +29,9 @@ import {
   isSensitivity,
   normalizeMaximumInterval,
   normalizeRetention,
+  type AlgorithmPreset,
+  type DisplayPreset,
+  type FilterPreset,
   type PluginSettings,
 } from './types';
 
@@ -84,29 +94,23 @@ class FolderSuggest extends AbstractInputSuggest<string> {
   }
 }
 
+// Built once, so the active ids below refer to the very presets in this
+// library rather than to freshly generated ones that would not resolve.
+const DEFAULT_PRESETS = defaultLibrary();
+
+/**
+ * Only feed mechanics live here now; everything else is configuration and
+ * belongs to a preset. `defaultLibrary()` supplies one of each group, whose
+ * defaults are behaviour-preserving.
+ */
 export const DEFAULT_SETTINGS: PluginSettings = {
   batchSize: 20,
   infiniteScroll: false,
-  includeMediaOnlyNotes: true,
-  showNonMarkdownFiles: true,
-  simplifiedView: true,
-  reduceAnimations: false,
-  previewSize: 'medium',
-  openNoteBehavior: 'tab',
-  excludeFolders: [],
-  excludeTags: [],
-  excludeGlobs: [],
-  searchQuery: '',
-  frontmatterImageProps: ['cover', 'image', 'banner'],
-  frontmatterBeforeProps: [],
-  frontmatterAfterProps: [],
-  // Resurfacing defaults to off so an upgrade is behaviour-preserving.
-  algorithm: 'off',
-  gradingMode: 'hybrid',
-  sensitivity: 'medium',
-  // Copied, not referenced: DEFAULT_SETTINGS must never be mutated through a
-  // shared object.
-  fsrsTunables: { ...FSRS_DEFAULT_TUNABLES },
+  presets: DEFAULT_PRESETS,
+  activeFilterPresetId: DEFAULT_PRESETS.filters[0]!.id,
+  activeAlgorithmPresetId: DEFAULT_PRESETS.algorithms[0]!.id,
+  activeDisplayPresetId: DEFAULT_PRESETS.displays[0]!.id,
+  activeTotalPresetId: DEFAULT_PRESETS.totals[0]!.id,
 };
 
 export class DoomscrollSettingTab extends PluginSettingTab {
@@ -248,7 +252,7 @@ export class DoomscrollSettingTab extends PluginSettingTab {
                 new Notice('Excluded folder path cannot be empty or the vault root');
                 return;
               }
-              if (this.plugin.data.settings.excludeFolders.includes(folder)) {
+              if (this.flatView().excludeFolders.includes(folder)) {
                 new Notice('That folder is already excluded');
                 return;
               }
@@ -270,7 +274,7 @@ export class DoomscrollSettingTab extends PluginSettingTab {
    * them regardless would invite users to configure things that do nothing.
    */
   private resurfacingSettings(): SettingDefinitionItem[] {
-    const settings = this.plugin.data.settings;
+    const settings = this.flatView();
 
     const items: SettingDefinitionItem[] = [
       {
@@ -350,8 +354,74 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     return items;
   }
 
+  /** The active preset of each group — what the settings page edits. */
+  private activeFilterPreset(): FilterPreset {
+    return activeFilter(
+      this.plugin.data.settings.presets,
+      this.plugin.data.settings.activeFilterPresetId
+    );
+  }
+
+  private activeAlgorithmPreset(): AlgorithmPreset {
+    return activeAlgorithm(
+      this.plugin.data.settings.presets,
+      this.plugin.data.settings.activeAlgorithmPresetId
+    );
+  }
+
+  private activeDisplayPreset(): DisplayPreset {
+    return activeDisplay(
+      this.plugin.data.settings.presets,
+      this.plugin.data.settings.activeDisplayPresetId
+    );
+  }
+
+  /**
+   * A flat view shaped like the settings this fork used before presets, so the
+   * controls that already exist keep working unchanged.
+   *
+   * Reads resolve through the *effective* configuration, so a temporary
+   * override made in the feed is what the settings page shows. Writes
+   * (`setControlValue`) target the *active presets*, since the settings page
+   * edits what is saved rather than creating an override.
+   *
+   * `showNonMarkdownFiles` is derived: the standalone-file toggle is now the
+   * file-type rule, and "nothing allowed" is how the old `false` is expressed.
+   * Editing the rule's mode and categories directly belongs to the preset
+   * manager UI; until then this toggle maps to the two whole-rule extremes.
+   */
+  private flatView() {
+    const filter = this.plugin.getEffectiveFilter();
+    const algorithm = this.plugin.getEffectiveAlgorithm();
+    const display = this.plugin.getEffectiveDisplay();
+    return {
+      batchSize: this.plugin.data.settings.batchSize,
+      infiniteScroll: this.plugin.data.settings.infiniteScroll,
+      includeMediaOnlyNotes: filter.includeMediaOnlyNotes,
+      showNonMarkdownFiles: !(
+        filter.fileTypes.mode === 'whitelist' &&
+        filter.fileTypes.values.length === 0
+      ),
+      simplifiedView: display.simplifiedView,
+      reduceAnimations: display.reduceAnimations,
+      previewSize: display.previewSize,
+      openNoteBehavior: display.openNoteBehavior,
+      excludeFolders: filter.folders.values,
+      excludeTags: filter.tags.values,
+      excludeGlobs: filter.globs.values,
+      searchQuery: filter.searchQuery,
+      frontmatterImageProps: display.frontmatterImageProps,
+      frontmatterBeforeProps: display.frontmatterBeforeProps,
+      frontmatterAfterProps: display.frontmatterAfterProps,
+      algorithm: algorithm.algorithm,
+      gradingMode: algorithm.gradingMode,
+      sensitivity: algorithm.sensitivity,
+      fsrsTunables: algorithm.fsrsTunables,
+    };
+  }
+
   getControlValue(key: string): unknown {
-    const settings = this.plugin.data.settings;
+    const settings = this.flatView();
     switch (key) {
       case 'batchSize':
         return String(settings.batchSize);
@@ -398,104 +468,128 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     }
   }
 
+  /**
+   * Write a control's value into the active preset group that owns it.
+   *
+   * The settings page edits what is *saved*; temporary overrides are the feed
+   * header's job. Editing any group by hand means the active composite no
+   * longer describes what is in force, so it is cleared — except for feed
+   * mechanics, which belong to no group.
+   */
   async setControlValue(key: string, value: unknown): Promise<void> {
-    const settings = this.plugin.data.settings;
+    // Renamed to make it obvious this is the persisted root, not a preset.
+    const rootSettings = this.plugin.data.settings;
+    // These return the live presets, so mutating them mutates the library.
+    const filter = this.activeFilterPreset();
+    const algorithm = this.activeAlgorithmPreset();
+    const display = this.activeDisplayPreset();
+
     switch (key) {
       case 'batchSize': {
         const batchSize = Number(value);
         if (![10, 20, 50, 100].includes(batchSize)) return;
-        settings.batchSize = batchSize;
+        rootSettings.batchSize = batchSize;
         break;
       }
       case 'infiniteScroll':
         if (typeof value !== 'boolean') return;
-        settings.infiniteScroll = value;
+        rootSettings.infiniteScroll = value;
         break;
       case 'includeMediaOnlyNotes':
         if (typeof value !== 'boolean') return;
-        settings.includeMediaOnlyNotes = value;
+        filter.includeMediaOnlyNotes = value;
         break;
       case 'showNonMarkdownFiles':
         if (typeof value !== 'boolean') return;
-        settings.showNonMarkdownFiles = value;
+        // The whole-rule extremes of the file-type rule. Editing the rule's
+        // mode and categories directly belongs to the preset manager UI.
+        filter.fileTypes = value
+          ? { mode: 'blacklist', values: [] }
+          : { mode: 'whitelist', values: [] };
         break;
       case 'simplifiedView':
         if (typeof value !== 'boolean') return;
-        settings.simplifiedView = value;
+        display.simplifiedView = value;
         break;
       case 'reduceAnimations':
         if (typeof value !== 'boolean') return;
-        settings.reduceAnimations = value;
+        display.reduceAnimations = value;
         break;
       case 'previewSize':
         if (!isPreviewSize(value)) return;
-        settings.previewSize = value;
+        display.previewSize = value;
         break;
       case 'searchQuery':
         if (typeof value !== 'string') return;
-        settings.searchQuery = value;
+        filter.searchQuery = value;
         break;
       case 'openNoteBehavior':
         if (value !== 'tab' && value !== 'reuse' && value !== 'window') return;
-        settings.openNoteBehavior = value;
+        display.openNoteBehavior = value;
         break;
       case 'excludeTags':
         if (typeof value !== 'string') return;
-        settings.excludeTags = parseLines(value);
+        filter.tags = normalizeRule({
+          mode: filter.tags.mode,
+          values: parseLines(value),
+        });
         break;
       case 'excludeGlobs':
         if (typeof value !== 'string') return;
-        settings.excludeGlobs = parseLines(value);
+        filter.globs = normalizeRule({
+          mode: filter.globs.mode,
+          values: parseLines(value),
+        });
         break;
       case 'frontmatterImageProps':
         if (typeof value !== 'string') return;
-        settings.frontmatterImageProps = parseLines(value);
+        display.frontmatterImageProps = parseLines(value);
         break;
       case 'frontmatterBeforeProps':
         if (typeof value !== 'string') return;
-        settings.frontmatterBeforeProps = parseLines(value);
+        display.frontmatterBeforeProps = parseLines(value);
         break;
       case 'frontmatterAfterProps':
         if (typeof value !== 'string') return;
-        settings.frontmatterAfterProps = parseLines(value);
+        display.frontmatterAfterProps = parseLines(value);
         break;
       case 'algorithm':
         if (!isAlgorithmId(value)) return;
-        settings.algorithm = value;
+        algorithm.algorithm = value;
         break;
       case 'gradingMode':
         if (!isGradingMode(value)) return;
-        settings.gradingMode = value;
+        algorithm.gradingMode = value;
         break;
       case 'sensitivity':
         if (!isSensitivity(value)) return;
-        settings.sensitivity = value;
+        algorithm.sensitivity = value;
         break;
-      case 'requestRetention': {
-        // Clamped rather than rejected: the declarative slider cannot produce
-        // an out-of-range value, so anything that does is a hand-edited
-        // data.json, and clamping recovers from it instead of ignoring the
-        // user's edit.
-        const requestRetention = normalizeRetention(value);
-        if (requestRetention === settings.fsrsTunables.requestRetention) return;
-        settings.fsrsTunables = {
-          ...settings.fsrsTunables,
-          requestRetention,
+      case 'requestRetention':
+        algorithm.fsrsTunables = {
+          ...algorithm.fsrsTunables,
+          requestRetention: normalizeRetention(value),
         };
         break;
-      }
-      case 'maximumInterval': {
-        const maximumInterval = normalizeMaximumInterval(value);
-        if (maximumInterval === settings.fsrsTunables.maximumInterval) return;
-        settings.fsrsTunables = { ...settings.fsrsTunables, maximumInterval };
+      case 'maximumInterval':
+        algorithm.fsrsTunables = {
+          ...algorithm.fsrsTunables,
+          maximumInterval: normalizeMaximumInterval(value),
+        };
         break;
-      }
       case 'enableFuzz':
         if (typeof value !== 'boolean') return;
-        settings.fsrsTunables = { ...settings.fsrsTunables, enableFuzz: value };
+        algorithm.fsrsTunables = {
+          ...algorithm.fsrsTunables,
+          enableFuzz: value,
+        };
         break;
       default:
         return;
+    }
+
+    if (key !== 'batchSize' && key !== 'infiniteScroll') {
+      rootSettings.activeTotalPresetId = null;
     }
 
     await this.plugin.saveSettingsAndRefreshViews();
@@ -506,7 +600,7 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     folder: string,
     inputEl: HTMLInputElement | null
   ): Promise<void> {
-    this.plugin.data.settings.excludeFolders.push(folder);
+    this.flatView().excludeFolders.push(folder);
     await this.plugin.saveSettingsAndRefreshViews();
     if (inputEl) inputEl.value = '';
     this.refreshDeclarativeSettings();
@@ -522,9 +616,9 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     folder: string,
     container: HTMLElement
   ): Promise<void> {
-    const index = this.plugin.data.settings.excludeFolders.indexOf(folder);
+    const index = this.flatView().excludeFolders.indexOf(folder);
     if (index === -1) return;
-    this.plugin.data.settings.excludeFolders.splice(index, 1);
+    this.flatView().excludeFolders.splice(index, 1);
     await this.plugin.saveSettingsAndRefreshViews();
     this.renderExcludedFolders(container);
   }
@@ -533,7 +627,7 @@ export class DoomscrollSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    const settings = this.plugin.data.settings;
+    const settings = this.flatView();
 
     configureHeader(new Setting(containerEl));
 
@@ -569,9 +663,9 @@ export class DoomscrollSettingTab extends PluginSettingTab {
       .setDesc('Show Markdown notes containing only images or other attachments')
       .addToggle((toggle) =>
         toggle
-          .setValue(this.plugin.data.settings.includeMediaOnlyNotes)
+          .setValue(this.flatView().includeMediaOnlyNotes)
           .onChange(async (value) => {
-            this.plugin.data.settings.includeMediaOnlyNotes = value;
+            this.flatView().includeMediaOnlyNotes = value;
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -581,9 +675,9 @@ export class DoomscrollSettingTab extends PluginSettingTab {
       .setDesc('Show standalone vault files such as images, PDFs, and other attachments')
       .addToggle((toggle) =>
         toggle
-          .setValue(this.plugin.data.settings.showNonMarkdownFiles)
+          .setValue(this.flatView().showNonMarkdownFiles)
           .onChange(async (value) => {
-            this.plugin.data.settings.showNonMarkdownFiles = value;
+            this.flatView().showNonMarkdownFiles = value;
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -595,9 +689,9 @@ export class DoomscrollSettingTab extends PluginSettingTab {
       )
       .addToggle((toggle) =>
         toggle
-          .setValue(this.plugin.data.settings.simplifiedView !== false)
+          .setValue(this.flatView().simplifiedView !== false)
           .onChange(async (value) => {
-            this.plugin.data.settings.simplifiedView = value;
+            this.flatView().simplifiedView = value;
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -607,9 +701,9 @@ export class DoomscrollSettingTab extends PluginSettingTab {
       .setDesc('Disable card and scrolling animations during keyboard navigation')
       .addToggle((toggle) =>
         toggle
-          .setValue(this.plugin.data.settings.reduceAnimations)
+          .setValue(this.flatView().reduceAnimations)
           .onChange(async (value) => {
-            this.plugin.data.settings.reduceAnimations = value;
+            this.flatView().reduceAnimations = value;
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -624,10 +718,10 @@ export class DoomscrollSettingTab extends PluginSettingTab {
             medium: 'Medium',
             large: 'Large',
           })
-          .setValue(this.plugin.data.settings.previewSize)
+          .setValue(this.flatView().previewSize)
           .onChange(async (value) => {
             if (!isPreviewSize(value)) return;
-            this.plugin.data.settings.previewSize = value;
+            this.flatView().previewSize = value;
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -640,9 +734,9 @@ export class DoomscrollSettingTab extends PluginSettingTab {
       .addText((text) =>
         text
           .setPlaceholder('tag:#work [status:Draft]')
-          .setValue(this.plugin.data.settings.searchQuery)
+          .setValue(this.flatView().searchQuery)
           .onChange(async (value) => {
-            this.plugin.data.settings.searchQuery = value;
+            this.flatView().searchQuery = value;
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -657,12 +751,12 @@ export class DoomscrollSettingTab extends PluginSettingTab {
             reuse: 'Reuse current tab',
             window: 'New window',
           })
-          .setValue(this.plugin.data.settings.openNoteBehavior)
+          .setValue(this.flatView().openNoteBehavior)
           .onChange(async (value) => {
             if (value !== 'tab' && value !== 'reuse' && value !== 'window') {
               return;
             }
-            this.plugin.data.settings.openNoteBehavior = value;
+            this.flatView().openNoteBehavior = value;
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -672,9 +766,9 @@ export class DoomscrollSettingTab extends PluginSettingTab {
       .setDesc('Tags to skip without # (one per line)')
       .addTextArea((text) =>
         text
-          .setValue(this.plugin.data.settings.excludeTags.join('\n'))
+          .setValue(this.flatView().excludeTags.join('\n'))
           .onChange(async (value) => {
-            this.plugin.data.settings.excludeTags = parseLines(value);
+            this.flatView().excludeTags = parseLines(value);
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -684,9 +778,9 @@ export class DoomscrollSettingTab extends PluginSettingTab {
       .setDesc('Filename patterns to skip (one per line, e.g., _*)')
       .addTextArea((text) =>
         text
-          .setValue(this.plugin.data.settings.excludeGlobs.join('\n'))
+          .setValue(this.flatView().excludeGlobs.join('\n'))
           .onChange(async (value) => {
-            this.plugin.data.settings.excludeGlobs = parseLines(value);
+            this.flatView().excludeGlobs = parseLines(value);
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -698,9 +792,9 @@ export class DoomscrollSettingTab extends PluginSettingTab {
       )
       .addTextArea((text) =>
         text
-          .setValue(this.plugin.data.settings.frontmatterImageProps.join('\n'))
+          .setValue(this.flatView().frontmatterImageProps.join('\n'))
           .onChange(async (value) => {
-            this.plugin.data.settings.frontmatterImageProps = parseLines(value);
+            this.flatView().frontmatterImageProps = parseLines(value);
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -714,10 +808,10 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         text
           .setPlaceholder('title\nsource\nauthor')
           .setValue(
-            this.plugin.data.settings.frontmatterBeforeProps.join('\n')
+            this.flatView().frontmatterBeforeProps.join('\n')
           )
           .onChange(async (value) => {
-            this.plugin.data.settings.frontmatterBeforeProps = parseLines(value);
+            this.flatView().frontmatterBeforeProps = parseLines(value);
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -731,10 +825,10 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         text
           .setPlaceholder('source\nauthor\npublished')
           .setValue(
-            this.plugin.data.settings.frontmatterAfterProps.join('\n')
+            this.flatView().frontmatterAfterProps.join('\n')
           )
           .onChange(async (value) => {
-            this.plugin.data.settings.frontmatterAfterProps = parseLines(value);
+            this.flatView().frontmatterAfterProps = parseLines(value);
             await this.plugin.saveSettingsAndRefreshViews();
           })
       );
@@ -762,12 +856,12 @@ export class DoomscrollSettingTab extends PluginSettingTab {
             new Notice('Excluded folder path cannot be empty or the vault root');
             return;
           }
-          if (this.plugin.data.settings.excludeFolders.includes(folder)) {
+          if (this.flatView().excludeFolders.includes(folder)) {
             new Notice('That folder is already excluded');
             return;
           }
 
-          this.plugin.data.settings.excludeFolders.push(folder);
+          this.flatView().excludeFolders.push(folder);
           await this.plugin.saveSettingsAndRefreshViews();
           folderInputEl.value = '';
           this.renderExcludedFolders(excludedFoldersList);
@@ -893,12 +987,12 @@ export class DoomscrollSettingTab extends PluginSettingTab {
   private renderExcludedFolders(container: HTMLElement): void {
     container.empty();
 
-    if (this.plugin.data.settings.excludeFolders.length === 0) {
+    if (this.flatView().excludeFolders.length === 0) {
       container.createDiv({ text: 'No excluded folders' });
       return;
     }
 
-    for (const folder of this.plugin.data.settings.excludeFolders) {
+    for (const folder of this.flatView().excludeFolders) {
       const row = container.createDiv('doomscroll-excluded-folder-item');
       row.createSpan({ text: folder });
       row

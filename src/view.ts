@@ -29,6 +29,7 @@ import { selectBatch } from './selector';
 import { allAlgorithms, getAlgorithm } from './algorithms';
 import { clampDwell, gradeEngagement, ratingForVerdict } from './grading';
 import { SrsStore, logSrsError } from './srsLog';
+import { passesFileTypeRule } from './filtering';
 import { pickCardIndex } from './navigation';
 import { ShortcutsModal } from './help';
 import { recordView } from './history';
@@ -147,16 +148,13 @@ export class DoomscrollView extends ItemView {
   private pluginRefreshExcludePaths = new Set<string>();
 
   /**
-   * Live tweaks made from the feed header, applied to this session only.
+   * Live tweaks made from the feed header.
    *
-   * Deliberately not persisted: the point is to let the user try a setting
-   * without committing it, so reopening the feed returns to the saved value.
+   * The overlay itself lives on the plugin (see `applySession`), because the
+   * indexer has to see a filter change made here. Only the button reference is
+   * kept locally, since the header is rebuilt on every render.
    */
   private tuneButton: HTMLButtonElement | null = null;
-  private sessionAlgorithm: AlgorithmId | null = null;
-  private sessionTunables: FsrsTunables | null = null;
-  private sessionGradingMode: GradingMode | null = null;
-  private sessionSensitivity: Sensitivity | null = null;
 
   /** Visible time accumulated per path for the current batch. */
   private dwell = new Map<string, { ms: number; opened: boolean }>();
@@ -281,7 +279,7 @@ export class DoomscrollView extends ItemView {
     this.focusedPath = card.dataset.path ?? null;
     // Real DOM focus lets screen readers follow the cursor.
     card.focus({ preventScroll: true });
-    const reduceAnimations = this.plugin.data.settings.reduceAnimations;
+    const reduceAnimations = this.plugin.getEffectiveDisplay().reduceAnimations;
     if (scroll) {
       if (reduceAnimations) {
         this.cancelScrollAnimation();
@@ -509,7 +507,7 @@ export class DoomscrollView extends ItemView {
   }
 
   private syncAnimationPreference(): void {
-    const reduceAnimations = this.plugin.data.settings.reduceAnimations;
+    const reduceAnimations = this.plugin.getEffectiveDisplay().reduceAnimations;
     this.containerEl.classList.toggle(
       'doomscroll-reduce-animation',
       reduceAnimations
@@ -888,22 +886,25 @@ export class DoomscrollView extends ItemView {
     }
   }
 
-  /** The algorithm in force: a header tweak if set, otherwise the saved one. */
+  // The session overlay lives on the plugin now, so that a filter change made
+  // in the feed is visible to the indexer — filtering happens at index time,
+  // and the view alone could not trigger the rebuild it needs. These delegate
+  // rather than keeping a second copy.
+
   private effectiveAlgorithm(): AlgorithmId {
-    return this.sessionAlgorithm ?? this.plugin.data.settings.algorithm;
+    return this.plugin.getEffectiveAlgorithm().algorithm;
   }
 
   private effectiveGradingMode(): GradingMode {
-    return this.sessionGradingMode ?? this.plugin.data.settings.gradingMode;
+    return this.plugin.getEffectiveAlgorithm().gradingMode;
   }
 
   private effectiveSensitivity(): Sensitivity {
-    return this.sessionSensitivity ?? this.plugin.data.settings.sensitivity;
+    return this.plugin.getEffectiveAlgorithm().sensitivity;
   }
 
-  /** FSRS parameters in force: header tweaks layered over the saved ones. */
   private effectiveTunables(): FsrsTunables {
-    return this.sessionTunables ?? this.plugin.data.settings.fsrsTunables;
+    return this.plugin.getEffectiveAlgorithm().fsrsTunables;
   }
 
   /**
@@ -925,19 +926,15 @@ export class DoomscrollView extends ItemView {
   }
 
   private hasSessionOverrides(): boolean {
-    return (
-      this.sessionAlgorithm !== null ||
-      this.sessionTunables !== null ||
-      this.sessionGradingMode !== null ||
-      this.sessionSensitivity !== null
-    );
+    return this.plugin.hasSessionOverrides();
   }
 
   /**
    * Adjust the scheduler for this session only.
    *
-   * Nothing here is persisted, so the header is safe to experiment in: reopen
-   * the feed and the saved settings are back.
+   * The overlay lives on the plugin so the indexer can see it too; nothing here
+   * is persisted, so the header stays safe to experiment in and reopening the
+   * feed restores the saved presets.
    */
   private applySession(patch: {
     algorithm?: AlgorithmId;
@@ -947,20 +944,21 @@ export class DoomscrollView extends ItemView {
     reset?: boolean;
   }): void {
     if (patch.reset) {
-      this.sessionAlgorithm = null;
-      this.sessionTunables = null;
-      this.sessionGradingMode = null;
-      this.sessionSensitivity = null;
+      this.plugin.clearSessionOverrides();
     }
-    if (patch.algorithm !== undefined) this.sessionAlgorithm = patch.algorithm;
+    if (patch.algorithm !== undefined) {
+      this.plugin.applySessionAlgorithm({ algorithm: patch.algorithm });
+    }
     if (patch.gradingMode !== undefined) {
-      this.sessionGradingMode = patch.gradingMode;
+      this.plugin.applySessionAlgorithm({ gradingMode: patch.gradingMode });
     }
     if (patch.sensitivity !== undefined) {
-      this.sessionSensitivity = patch.sensitivity;
+      this.plugin.applySessionAlgorithm({ sensitivity: patch.sensitivity });
     }
     if (patch.tunables !== undefined) {
-      this.sessionTunables = { ...this.effectiveTunables(), ...patch.tunables };
+      this.plugin.applySessionAlgorithm({
+        fsrsTunables: { ...this.effectiveTunables(), ...patch.tunables },
+      });
     }
 
     this.updateTuneButton();
@@ -1546,43 +1544,72 @@ export class DoomscrollView extends ItemView {
     });
   }
 
+  /**
+   * What the current batch was chosen under.
+   *
+   * Only configuration that changes *which* notes arrive or *how* they are
+   * chosen belongs here. The display preset's rendering options (simplified
+   * view, preview size, frontmatter rendering) are deliberately absent: they
+   * change how a card looks, not which cards are in the batch, so changing them
+   * must not discard the batch the user is reading.
+   *
+   * Values are used rather than the active preset ids, because a session
+   * override changes what is in force without changing any id.
+   */
   private getBatchSettingsKey(): string {
-    const {
-      simplifiedView: _simplifiedView,
-      reduceAnimations: _reduceAnimations,
-      previewSize: _previewSize,
-      frontmatterBeforeProps: _frontmatterBeforeProps,
-      frontmatterAfterProps: _frontmatterAfterProps,
-      ...batchSettings
-    } = this.plugin.data.settings;
-    return JSON.stringify(batchSettings);
+    const algorithm = this.plugin.getEffectiveAlgorithm();
+    const filter = this.plugin.getEffectiveFilter();
+    return JSON.stringify({
+      batchSize: this.plugin.data.settings.batchSize,
+      infiniteScroll: this.plugin.data.settings.infiniteScroll,
+      filter: {
+        folders: filter.folders,
+        tags: filter.tags,
+        globs: filter.globs,
+        searchQuery: filter.searchQuery,
+        fileTypes: filter.fileTypes,
+        includeMediaOnlyNotes: filter.includeMediaOnlyNotes,
+      },
+      algorithm: {
+        algorithm: algorithm.algorithm,
+        gradingMode: algorithm.gradingMode,
+        sensitivity: algorithm.sensitivity,
+        fsrsTunables: algorithm.fsrsTunables,
+      },
+    });
   }
 
   private shouldIncludePreview(preview: NotePreview): boolean {
-    if (preview.attachment) {
-      return this.plugin.data.settings.showNonMarkdownFiles;
+    const filter = this.plugin.getEffectiveFilter();
+
+    // File type is the successor to `showNonMarkdownFiles`. The indexer already
+    // applied it, but re-checking here keeps the view consistent in the window
+    // before a rebuild catches up.
+    if (!passesFileTypeRule(filter.fileTypes, preview.path)) {
+      return false;
     }
-    return (
-      this.plugin.data.settings.includeMediaOnlyNotes ||
-      !isMediaOnlyPreview(preview)
-    );
+
+    // A standalone attachment has no note content to preview.
+    if (preview.attachment) return true;
+
+    return filter.includeMediaOnlyNotes || !isMediaOnlyPreview(preview);
   }
 
   private getFrontmatterPropertiesKey(): string {
     return JSON.stringify({
-      before: this.plugin.data.settings.frontmatterBeforeProps ?? [],
-      after: this.plugin.data.settings.frontmatterAfterProps ?? [],
+      before: this.plugin.getEffectiveDisplay().frontmatterBeforeProps ?? [],
+      after: this.plugin.getEffectiveDisplay().frontmatterAfterProps ?? [],
     });
   }
 
   private isSimplifiedView(): boolean {
     // Treat missing values from pre-setting data.json files as the default.
-    return this.plugin.data.settings.simplifiedView !== false;
+    return this.plugin.getEffectiveDisplay().simplifiedView !== false;
   }
 
   private getPreviewSize(): PreviewSize {
-    return isPreviewSize(this.plugin.data.settings.previewSize)
-      ? this.plugin.data.settings.previewSize
+    return isPreviewSize(this.plugin.getEffectiveDisplay().previewSize)
+      ? this.plugin.getEffectiveDisplay().previewSize
       : 'medium';
   }
 
@@ -2083,7 +2110,7 @@ export class DoomscrollView extends ItemView {
         this.scheduleHistorySave();
       }
 
-      const behavior = this.plugin.data.settings.openNoteBehavior;
+      const behavior = this.plugin.getEffectiveDisplay().openNoteBehavior;
       const leaf =
         behavior === 'reuse'
           ? this.leaf
@@ -2295,8 +2322,8 @@ export class DoomscrollView extends ItemView {
     frontmatterEl.classList.add(`doomscroll-card-frontmatter-${position}`);
     const properties =
       position === 'before'
-        ? this.plugin.data.settings.frontmatterBeforeProps ?? []
-        : this.plugin.data.settings.frontmatterAfterProps ?? [];
+        ? this.plugin.getEffectiveDisplay().frontmatterBeforeProps ?? []
+        : this.plugin.getEffectiveDisplay().frontmatterAfterProps ?? [];
     this.renderFrontmatterProperties(preview, frontmatterEl, properties);
     if (frontmatterEl.childElementCount === 0) {
       frontmatterEl.remove();
