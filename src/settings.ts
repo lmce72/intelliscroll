@@ -214,9 +214,19 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         name: 'Excluded folders',
         render: (setting) => {
           setting.setName('Excluded folders').setHeading();
-          const list = setting.settingEl.createDiv(
-            'doomscroll-excluded-folders-list'
+          // Reuse the existing list if there is one. Obsidian re-runs render
+          // callbacks on every settings update — and every save refreshes the
+          // tab — while leaving whatever this callback appended to settingEl
+          // in place. Creating a div unconditionally therefore stacked another
+          // copy of the list on each change, so a single excluded folder would
+          // appear once per save.
+          const existing = setting.settingEl.querySelector(
+            '.doomscroll-excluded-folders-list'
           );
+          const list =
+            existing instanceof HTMLElement
+              ? existing
+              : setting.settingEl.createDiv('doomscroll-excluded-folders-list');
           this.renderExcludedFolders(list);
         },
       },
