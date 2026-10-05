@@ -22,6 +22,7 @@ import {
   defaultFilterPreset,
   duplicatePreset,
   newPresetId,
+  normalizeRule,
   removePreset,
   uniqueName,
   type PresetKind,
@@ -145,6 +146,8 @@ const FIXED_CONTROL_KEYS: readonly string[] = [
   'tagMode',
   'globMode',
   'fileTypeMode',
+  'ignoreMode',
+  'ignorePaths',
   'algorithm',
 ];
 
@@ -184,6 +187,11 @@ export function readPresetControl(
       return filter.globs.mode;
     case 'fileTypeMode':
       return filter.fileTypes.mode;
+    case 'ignoreMode':
+      return filter.ignore.mode;
+    case 'ignorePaths':
+      // One path per line, like the other list dimensions.
+      return filter.ignore.values.join('\n');
     case 'algorithm':
       return activeAlgorithm(library, root.activeAlgorithmPresetId).algorithm;
     default: {
@@ -251,10 +259,20 @@ export async function writePresetControl(
       preset.algorithm = value;
       break;
     }
+    case 'ignorePaths': {
+      if (typeof value !== 'string') return true;
+      const preset = activeFilter(library, root.activeFilterPresetId);
+      preset.ignore = normalizeRule({
+        mode: preset.ignore.mode,
+        values: value.split('\n'),
+      });
+      break;
+    }
     case 'folderMode':
     case 'tagMode':
     case 'globMode':
-    case 'fileTypeMode': {
+    case 'fileTypeMode':
+    case 'ignoreMode': {
       if (!isRuleMode(value)) return true;
       const preset = activeFilter(library, root.activeFilterPresetId);
       if (key === 'folderMode') {
@@ -263,6 +281,8 @@ export async function writePresetControl(
         preset.tags = { ...preset.tags, mode: value };
       } else if (key === 'globMode') {
         preset.globs = { ...preset.globs, mode: value };
+      } else if (key === 'ignoreMode') {
+        preset.ignore = { ...preset.ignore, mode: value };
       } else {
         // Mode only: the category toggles own the values.
         preset.fileTypes = { ...preset.fileTypes, mode: value };
@@ -899,6 +919,16 @@ export function buildPresetSettings(
     name: t('presets.fileTypes.name'),
     desc: t('presets.fileTypes.desc'),
     control: { type: 'dropdown', key: 'fileTypeMode', options: modeOptions() },
+  });
+  items.push({
+    name: t('presets.ignore.name'),
+    desc: t('presets.ignore.desc'),
+    control: { type: 'dropdown', key: 'ignoreMode', options: modeOptions() },
+  });
+  items.push({
+    name: t('presets.ignorePaths.name'),
+    desc: t('presets.ignorePaths.desc'),
+    control: { type: 'textarea', key: 'ignorePaths' },
   });
   items.push(
     heading(

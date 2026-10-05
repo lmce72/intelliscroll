@@ -89,13 +89,10 @@ export class Indexer {
   private getIndexSettingsKey(): string {
     const config = this.getConfig();
     return JSON.stringify({
-      filter: {
-        folders: config.filter.folders,
-        tags: config.filter.tags,
-        globs: config.filter.globs,
-        searchQuery: config.filter.searchQuery.trim(),
-        fileTypes: config.filter.fileTypes,
-      },
+      // Delegates to the compiled filter's own key rather than re-listing the
+      // fields. Two hand-kept copies of this list is how a newly added
+      // dimension ends up affecting matching but never invalidating the index.
+      filter: compileFilter(config.filter).key,
       frontmatterImageProps: config.frontmatterImageProps,
     });
   }

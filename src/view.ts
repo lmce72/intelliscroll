@@ -6,6 +6,7 @@ import {
   MarkdownRenderer,
   Menu,
   Modal,
+  Notice,
   Platform,
   Scope,
   Setting,
@@ -1541,7 +1542,61 @@ export class DoomscrollView extends ItemView {
       );
     }
 
+    // Ignoring a note is a filter decision rather than a rating, so it gets its
+    // own section — and it lands in the filter preset's list, where it is
+    // editable alongside the other filters instead of in a private store only
+    // this menu can reach.
+    menu.addSeparator();
+    const ignored = this.isIgnored(preview.path);
+    menu.addItem((item) =>
+      item
+        .setTitle(ignored ? t('view.menu.unignore') : t('view.menu.ignore'))
+        .setIcon(ignored ? 'rotate-ccw' : 'eye-off')
+        .onClick(() => {
+          void this.toggleIgnored(preview);
+        })
+    );
+
     menu.showAtMouseEvent(event);
+  }
+
+  private isIgnored(path: string): boolean {
+    const lower = path.toLowerCase();
+    return this.plugin
+      .getEffectiveFilter()
+      .ignore.values.some((value) => value.toLowerCase() === lower);
+  }
+
+  /**
+   * Add or remove a note from the active filter preset's ignore list.
+   *
+   * Edits the saved preset rather than a session override: wanting never to see
+   * a note again is a decision worth keeping. Filtering happens at index time,
+   * so the refresh this triggers rebuilds the index, which is what actually
+   * removes the note from the feed.
+   */
+  private async toggleIgnored(preview: NotePreview): Promise<void> {
+    const preset = this.plugin.data.settings.presets.filters.find(
+      (candidate) =>
+        candidate.id === this.plugin.data.settings.activeFilterPresetId
+    );
+    if (!preset) return;
+
+    const lower = preview.path.toLowerCase();
+    const already = preset.ignore.values.some(
+      (value) => value.toLowerCase() === lower
+    );
+    preset.ignore = {
+      mode: preset.ignore.mode,
+      values: already
+        ? preset.ignore.values.filter((value) => value.toLowerCase() !== lower)
+        : [...preset.ignore.values, preview.path],
+    };
+
+    await this.plugin.saveSettingsAndRefreshViews();
+    new Notice(
+      already ? t('view.notice.unignored') : t('view.notice.ignored')
+    );
   }
 
   /**

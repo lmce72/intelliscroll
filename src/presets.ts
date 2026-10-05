@@ -93,6 +93,7 @@ export function defaultFilterPreset(
     folders: emptyRule(),
     tags: emptyRule(),
     globs: emptyRule(),
+    ignore: emptyRule(),
     searchQuery: '',
     // Blacklisting nothing means every standalone file type is allowed, which
     // matches the old `showNonMarkdownFiles: true` default.
@@ -241,8 +242,19 @@ export function ensureLibrary(input: unknown): PresetLibrary {
       ? (input as Partial<PresetLibrary>)
       : {};
 
+  // Presets written before `ignore` existed lack the field, and the guard below
+  // would reject them outright — which would silently replace a user's whole
+  // filter configuration with a default one. Upgrade the shape first, then
+  // validate.
+  const rawFilters = Array.isArray(source.filters) ? source.filters : [];
+  const upgradedFilters = rawFilters.map((entry) => {
+    if (typeof entry !== 'object' || entry === null) return entry;
+    if ((entry as Partial<FilterPreset>).ignore !== undefined) return entry;
+    return { ...(entry as object), ignore: emptyRule() };
+  });
+
   const library: PresetLibrary = {
-    filters: validEntries(source.filters, isFilterPreset),
+    filters: validEntries(upgradedFilters, isFilterPreset),
     algorithms: validEntries(source.algorithms, isAlgorithmPreset),
     displays: validEntries(source.displays, isDisplayPreset),
     totals: validEntries(source.totals, isTotalPreset),

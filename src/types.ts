@@ -109,6 +109,16 @@ export interface FilterPreset {
   folders: FilterRule;
   tags: FilterRule;
   globs: FilterRule;
+  /**
+   * Exact note paths to keep out of the feed.
+   *
+   * Separate from `globs` because this is written from the feed itself, one
+   * note at a time, when a card turns out to be one you never want to see
+   * again — the user should not have to compose a pattern for that. Matching is
+   * case-insensitive equality on the full path; folders already have their own
+   * dimension, so a prefix is deliberately not treated as one here.
+   */
+  ignore: FilterRule;
   searchQuery: string;
   /** Replaces the old `showNonMarkdownFiles`, which this subsumes exactly. */
   fileTypes: FileTypeRule;
@@ -212,6 +222,7 @@ export function isFilterPreset(value: unknown): value is FilterPreset {
     isFilterRule(preset.folders) &&
     isFilterRule(preset.tags) &&
     isFilterRule(preset.globs) &&
+    isFilterRule(preset.ignore) &&
     typeof preset.searchQuery === 'string' &&
     isFileTypeRule(preset.fileTypes) &&
     typeof preset.includeMediaOnlyNotes === 'boolean'

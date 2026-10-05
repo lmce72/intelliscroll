@@ -43,6 +43,12 @@ export const messages: MessageModule = {
     'presets.folders.name': 'Folders',
     'presets.folders.desc':
       'Whether the folder list is excluded, or the only folders allowed.',
+    'presets.ignore.name': 'Ignored notes',
+    'presets.ignore.desc':
+      'Whether the ignored-note list is excluded, or the only notes allowed.',
+    'presets.ignorePaths.name': 'Ignored note paths',
+    'presets.ignorePaths.desc':
+      "Full note paths to keep out of the feed, one per line. Add them from a card's rating menu.",
     'presets.tags.name': 'Tags',
     'presets.tags.desc': 'Whether the tag list is excluded, or the only tags allowed.',
     'presets.globs.name': 'Filename patterns',
@@ -147,6 +153,11 @@ export const messages: MessageModule = {
 
     'presets.folders.name': '文件夹',
     'presets.folders.desc': '排除文件夹列表，还是只允许列表中的文件夹。',
+    'presets.ignore.name': '忽略的笔记',
+    'presets.ignore.desc': '排除忽略笔记列表，还是只允许列表中的笔记。',
+    'presets.ignorePaths.name': '忽略的笔记路径',
+    'presets.ignorePaths.desc':
+      '不再出现在卡片流中的笔记完整路径，每行一个。可在卡片的评分菜单里直接加入。',
     'presets.tags.name': '标签',
     'presets.tags.desc': '排除标签列表，还是只允许列表中的标签。',
     'presets.globs.name': '文件名模式',

@@ -106,6 +106,20 @@ export function passesTagRule(
 }
 
 /**
+ * Exact-path matching for the ignore list.
+ *
+ * Equality only, deliberately. The entries come from a card's own menu, so they
+ * are always real paths; treating them as folder prefixes would make `Notes`
+ * also swallow `Notes-archive`, and folders already have their own dimension.
+ */
+export function passesIgnoreRule(rule: FilterRule, filePath: string): boolean {
+  const wanted = rule.values
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  return passesMode(rule.mode, wanted.includes(filePath.toLowerCase()));
+}
+
+/**
  * File type applies to every file, including Markdown notes (`note` is one of
  * the selectable kinds), so a whitelist of `['image']` really does narrow the
  * feed to images alone.
@@ -157,12 +171,17 @@ export function compileFilter(preset: FilterPreset): CompiledFilter {
       folders: preset.folders,
       tags: preset.tags,
       globs: preset.globs,
+      ignore: preset.ignore,
       searchQuery,
       fileTypes: preset.fileTypes,
     }),
     tagsInert: tags.size === 0 && tagMode === 'blacklist',
 
     passesPath(filePath: string): boolean {
+      // Checked before the rest: an ignored note is gone regardless of whether
+      // anything else would have admitted it.
+      if (!passesIgnoreRule(preset.ignore, filePath)) return false;
+
       if (!passesMode(folderMode, matchesAnyFolder(filePath, folders))) {
         return false;
       }

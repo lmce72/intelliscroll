@@ -53,6 +53,10 @@ export const messages: MessageModule = {
     'view.menu.temporaryFilter': 'Temporary filter in force',
     'view.menu.saveAsPreset': 'Save as a new preset…',
     'view.menu.discardTemporary': 'Discard temporary changes',
+    'view.menu.ignore': 'Never show this note',
+    'view.menu.unignore': 'Stop ignoring this note',
+    'view.notice.ignored': 'Added to the ignore list',
+    'view.notice.unignored': 'Removed from the ignore list',
 
     'view.algorithm.off': 'Off (shuffled feed)',
     'view.grading.auto': 'Automatic only',
@@ -127,6 +131,10 @@ export const messages: MessageModule = {
     'view.menu.temporaryFilter': '临时过滤生效中',
     'view.menu.saveAsPreset': '存成新预设…',
     'view.menu.discardTemporary': '丢弃临时改动',
+    'view.menu.ignore': '不再显示这篇笔记',
+    'view.menu.unignore': '取消忽略这篇笔记',
+    'view.notice.ignored': '已加入忽略列表',
+    'view.notice.unignored': '已从忽略列表移除',
 
     'view.algorithm.off': '关闭（纯随机流）',
     'view.grading.auto': '仅自动',
