@@ -22,6 +22,7 @@ import {
   type FsrsTunables,
   type GradingMode,
   type NoteSrsState,
+  type Rating,
   type Sensitivity,
 } from './types';
 import { selectBatch } from './selector';
@@ -41,6 +42,23 @@ import {
 
 export const VIEW_TYPE_DOOMSCROLL = 'intelliscroll-view';
 const HISTORY_SAVE_DELAY_MS = 2_000;
+
+/** Icon shown on a card's rating button, per rating. */
+const RATING_ICONS: Record<Rating, string> = {
+  again: 'rotate-ccw',
+  hard: 'minus',
+  good: 'check',
+  easy: 'zap',
+};
+
+const RATING_LABELS: Record<Rating, string> = {
+  again: 'Again — I did not recall this',
+  hard: 'Hard — recalled with difficulty',
+  good: 'Good — recalled',
+  easy: 'Easy — trivial',
+};
+
+const RATING_ORDER: readonly Rating[] = ['again', 'hard', 'good', 'easy'];
 const MAX_BATCH_HISTORY = 20;
 const MAX_RENDERED_SNIPPET_CACHE_ENTRIES = 100;
 const MAX_IMAGE_DIMENSION_CACHE_ENTRIES = 200;
@@ -1166,6 +1184,116 @@ export class DoomscrollView extends ItemView {
     }
   }
 
+  /** Whether the feed should offer a manual rating on each card. */
+  private shouldOfferExplicitRating(): boolean {
+    if (this.effectiveAlgorithm() === 'off') return false;
+    return this.effectiveGradingMode() !== 'auto';
+  }
+
+  /**
+   * A single unobtrusive icon per card that opens the rating menu.
+   *
+   * Deliberately one control rather than four buttons: manual rating is a
+   * correction you reach for occasionally, so it should not put four targets
+   * on every card. Uses Obsidian's global `clickable-icon` class, so it needs
+   * no bespoke styling.
+   */
+  private renderRatingButton(
+    container: HTMLElement,
+    preview: NotePreview
+  ): void {
+    const button = container.createEl('button', {
+      cls: 'clickable-icon doomscroll-card-rate',
+    });
+    button.dataset.ratingPath = preview.path;
+    button.setAttribute('aria-label', `Rate ${preview.title}`);
+    button.setAttribute('title', `Rate ${preview.title}`);
+    setIcon(button, 'gauge');
+
+    button.addEventListener('click', (event) => {
+      // The card itself opens the note; a rating must not do that.
+      event.stopPropagation();
+      this.showRatingMenu(event, preview);
+    });
+  }
+
+  private showRatingMenu(event: MouseEvent, preview: NotePreview): void {
+    const menu = new Menu();
+
+    menu.addItem((item) => item.setTitle('Rate this note').setIsLabel(true));
+    for (const rating of RATING_ORDER) {
+      menu.addItem((item) =>
+        item
+          .setTitle(RATING_LABELS[rating])
+          .setIcon(RATING_ICONS[rating])
+          .onClick(() => {
+            void this.recordExplicitRating(preview, rating);
+          })
+      );
+    }
+
+    menu.showAtMouseEvent(event);
+  }
+
+  /**
+   * Apply a rating the user chose by hand.
+   *
+   * The only source of `again` / `hard` / `easy`: automatic grading cannot
+   * produce a negative rating, so this is what lets a scheduler register a
+   * lapse at all.
+   */
+  private async recordExplicitRating(
+    preview: NotePreview,
+    rating: Rating
+  ): Promise<void> {
+    const algorithm = this.effectiveAlgorithm();
+    if (algorithm === 'off') return;
+
+    const store = this.plugin.srsStore;
+    if (!store?.isLoaded) return;
+
+    try {
+      const file = this.app.vault.getAbstractFileByPath(preview.path);
+      if (!(file instanceof TFile)) return;
+      const content = await this.app.vault.cachedRead(file);
+
+      await store.recordReview(
+        {
+          path: preview.path,
+          rating,
+          algorithm,
+          source: 'explicit',
+          hash: SrsStore.hashContent(content),
+          now: Date.now(),
+          tunables: this.effectiveTunables(),
+        },
+        getAlgorithm(algorithm)
+      );
+
+      // The explicit rating supersedes any automatic observation of this card,
+      // which must not be recorded as a second review when the batch tears down.
+      this.dwell.delete(preview.path);
+      this.visibleSince.delete(preview.path);
+
+      this.updateRatingButton(preview.path, rating);
+    } catch (error) {
+      logSrsError(`failed to record rating for ${preview.path}`, error);
+    }
+  }
+
+  /** Show the chosen rating on the card so the action has visible feedback. */
+  private updateRatingButton(path: string, rating: Rating): void {
+    const card = Array.from(
+      this.containerEl.querySelectorAll<HTMLElement>('.doomscroll-card')
+    ).find((candidate) => candidate.dataset.path === path);
+    const button = card?.querySelector<HTMLElement>('.doomscroll-card-rate');
+    if (!button) return;
+
+    setIcon(button, RATING_ICONS[rating]);
+    button.setAttribute('aria-label', `Rated ${rating}`);
+    button.setAttribute('title', `Rated ${rating}`);
+  }
+
   private createCardObserver(container: HTMLElement): IntersectionObserver {
     return new IntersectionObserver(
       (entries) => {
@@ -1536,6 +1664,14 @@ export class DoomscrollView extends ItemView {
     const dateEl = titleRow.createDiv('doomscroll-card-date');
     const date = new Date(preview.mtime);
     dateEl.textContent = date.toLocaleDateString();
+
+    // Manual rating, when the user has asked for it. This is the only route by
+    // which a negative rating can ever reach a scheduler — automatic grading is
+    // deliberately incapable of inventing one — so without this control the
+    // 'manual' mode would record nothing at all.
+    if (this.shouldOfferExplicitRating()) {
+      this.renderRatingButton(titleRow, preview);
+    }
 
     // Image (lazy loaded)
     if (preview.imagePath) {
