@@ -4,6 +4,7 @@ import {
   EventRef,
   Events,
   MarkdownRenderer,
+  Menu,
   Platform,
   Scope,
   WorkspaceLeaf,
@@ -24,7 +25,7 @@ import {
   type Sensitivity,
 } from './types';
 import { selectBatch } from './selector';
-import { getAlgorithm } from './algorithms';
+import { allAlgorithms, getAlgorithm } from './algorithms';
 import { clampDwell, gradeEngagement, ratingForVerdict } from './grading';
 import { SrsStore, logSrsError } from './srsLog';
 import { pickCardIndex } from './navigation';
@@ -38,7 +39,7 @@ import {
   isVideoPath,
 } from './media';
 
-export const VIEW_TYPE_DOOMSCROLL = 'doomscroll-view';
+export const VIEW_TYPE_DOOMSCROLL = 'intelliscroll-view';
 const HISTORY_SAVE_DELAY_MS = 2_000;
 const MAX_BATCH_HISTORY = 20;
 const MAX_RENDERED_SNIPPET_CACHE_ENTRIES = 100;
@@ -133,6 +134,7 @@ export class DoomscrollView extends ItemView {
    * Deliberately not persisted: the point is to let the user try a setting
    * without committing it, so reopening the feed returns to the saved value.
    */
+  private tuneButton: HTMLButtonElement | null = null;
   private sessionAlgorithm: AlgorithmId | null = null;
   private sessionTunables: FsrsTunables | null = null;
   private sessionGradingMode: GradingMode | null = null;
@@ -578,7 +580,7 @@ export class DoomscrollView extends ItemView {
     const header = this.containerEl.createDiv('doomscroll-header');
 
     const title = header.createEl('h2');
-    title.textContent = 'Doomscroll';
+    title.textContent = 'IntelliScroll';
     title.className = 'doomscroll-title';
 
     this.refreshStatusEl = header.createDiv('doomscroll-refresh-status');
@@ -604,6 +606,17 @@ export class DoomscrollView extends ItemView {
     });
     this.updateBackButton();
 
+    // Live tuning button. Opens a native menu so the feed can be adjusted
+    // without leaving it; nothing chosen here is saved.
+    const tuneBtn = controls.createEl('button');
+    tuneBtn.className = 'doomscroll-tune-btn';
+    setIcon(tuneBtn, 'sliders-horizontal');
+    tuneBtn.addEventListener('click', (event) => {
+      this.showTuningMenu(event);
+    });
+    this.tuneButton = tuneBtn;
+    this.updateTuneButton();
+
     // Settings button
     const settingsBtn = controls.createEl('button');
     settingsBtn.className = 'doomscroll-settings-btn';
@@ -612,13 +625,13 @@ export class DoomscrollView extends ItemView {
     settingsBtn.addEventListener('click', () => {
       const { setting } = this.plugin.app as unknown as AppWithSettings;
       setting.open();
-      setting.openTabById('doomscroll');
+      setting.openTabById('intelliscroll');
     });
 
     // Body - scrollable container
     const bodyContainer = this.containerEl.createDiv('doomscroll-body');
     bodyContainer.setAttribute('role', 'feed');
-    bodyContainer.setAttribute('aria-label', 'Doomscroll');
+    bodyContainer.setAttribute('aria-label', 'IntelliScroll');
     bodyContainer.tabIndex = 0;
     bodyContainer.addEventListener(
       'scroll',
@@ -873,6 +886,179 @@ export class DoomscrollView extends ItemView {
   /** FSRS parameters in force: header tweaks layered over the saved ones. */
   private effectiveTunables(): FsrsTunables {
     return this.sessionTunables ?? this.plugin.data.settings.fsrsTunables;
+  }
+
+  /**
+   * Reflect whether live tweaks are in force.
+   *
+   * Uses Obsidian's global `mod-cta` class rather than a new style rule, so
+   * the button needs no bespoke CSS to signal "you are not on your saved
+   * settings".
+   */
+  private updateTuneButton(): void {
+    if (!this.tuneButton) return;
+    const active = this.hasSessionOverrides();
+    this.tuneButton.toggleClass('mod-cta', active);
+    const label = active
+      ? 'Tune resurfacing (temporary changes active)'
+      : 'Tune resurfacing';
+    this.tuneButton.setAttribute('aria-label', label);
+    this.tuneButton.setAttribute('title', label);
+  }
+
+  private hasSessionOverrides(): boolean {
+    return (
+      this.sessionAlgorithm !== null ||
+      this.sessionTunables !== null ||
+      this.sessionGradingMode !== null ||
+      this.sessionSensitivity !== null
+    );
+  }
+
+  /**
+   * Adjust the scheduler for this session only.
+   *
+   * Nothing here is persisted, so the header is safe to experiment in: reopen
+   * the feed and the saved settings are back.
+   */
+  private applySession(patch: {
+    algorithm?: AlgorithmId;
+    gradingMode?: GradingMode;
+    sensitivity?: Sensitivity;
+    tunables?: Partial<FsrsTunables>;
+    reset?: boolean;
+  }): void {
+    if (patch.reset) {
+      this.sessionAlgorithm = null;
+      this.sessionTunables = null;
+      this.sessionGradingMode = null;
+      this.sessionSensitivity = null;
+    }
+    if (patch.algorithm !== undefined) this.sessionAlgorithm = patch.algorithm;
+    if (patch.gradingMode !== undefined) {
+      this.sessionGradingMode = patch.gradingMode;
+    }
+    if (patch.sensitivity !== undefined) {
+      this.sessionSensitivity = patch.sensitivity;
+    }
+    if (patch.tunables !== undefined) {
+      this.sessionTunables = { ...this.effectiveTunables(), ...patch.tunables };
+    }
+
+    this.updateTuneButton();
+
+    // The batch on screen was chosen under the previous rules. Clearing the key
+    // routes this through the existing settings-change path, which re-rolls the
+    // batch and drops the back stack.
+    this.batchSettingsKey = null;
+    void this.refreshForCurrentSettings();
+  }
+
+  /**
+   * The live-tuning menu.
+   *
+   * A flat menu with labelled sections rather than nested submenus, because
+   * `MenuItem.setSubmenu` is not part of the public Obsidian API. Using a menu
+   * keeps everything on native styling, which matters on mobile.
+   */
+  private showTuningMenu(event: MouseEvent): void {
+    const menu = new Menu();
+    const algorithm = this.effectiveAlgorithm();
+    const gradingMode = this.effectiveGradingMode();
+
+    menu.addItem((item) => item.setTitle('Algorithm').setIsLabel(true));
+    for (const candidate of allAlgorithms()) {
+      menu.addItem((item) =>
+        item
+          .setTitle(candidate.id === 'off' ? 'Off (shuffled feed)' : candidate.label)
+          .setChecked(algorithm === candidate.id)
+          .onClick(() => this.applySession({ algorithm: candidate.id }))
+      );
+    }
+
+    if (algorithm !== 'off') {
+      menu.addSeparator();
+      menu.addItem((item) => item.setTitle('Grading').setIsLabel(true));
+      const gradingOptions: Array<[GradingMode, string]> = [
+        ['auto', 'Automatic only'],
+        ['hybrid', 'Automatic, with manual override'],
+        ['manual', 'Manual only'],
+      ];
+      for (const [id, label] of gradingOptions) {
+        menu.addItem((item) =>
+          item
+            .setTitle(label)
+            .setChecked(gradingMode === id)
+            .onClick(() => this.applySession({ gradingMode: id }))
+        );
+      }
+
+      if (gradingMode !== 'manual') {
+        menu.addSeparator();
+        menu.addItem((item) =>
+          item.setTitle('Auto-grading sensitivity').setIsLabel(true)
+        );
+        const sensitivityOptions: Array<[Sensitivity, string]> = [
+          ['conservative', 'Conservative'],
+          ['medium', 'Medium'],
+          ['aggressive', 'Aggressive'],
+        ];
+        for (const [id, label] of sensitivityOptions) {
+          menu.addItem((item) =>
+            item
+              .setTitle(label)
+              .setChecked(this.effectiveSensitivity() === id)
+              .onClick(() => this.applySession({ sensitivity: id }))
+          );
+        }
+      }
+
+      if (algorithm === 'fsrs') {
+        const tunables = this.effectiveTunables();
+        menu.addSeparator();
+        menu.addItem((item) =>
+          item.setTitle('Desired retention').setIsLabel(true)
+        );
+        for (const retention of [0.8, 0.85, 0.9, 0.95]) {
+          menu.addItem((item) =>
+            item
+              .setTitle(retention.toFixed(2))
+              .setChecked(
+                Math.abs(tunables.requestRetention - retention) < 0.001
+              )
+              .onClick(() =>
+                this.applySession({
+                  tunables: { requestRetention: retention },
+                })
+              )
+          );
+        }
+
+        menu.addSeparator();
+        menu.addItem((item) =>
+          item
+            .setTitle('Fuzz due dates')
+            .setChecked(tunables.enableFuzz)
+            .onClick(() =>
+              this.applySession({
+                tunables: { enableFuzz: !tunables.enableFuzz },
+              })
+            )
+        );
+      }
+    }
+
+    if (this.hasSessionOverrides()) {
+      menu.addSeparator();
+      menu.addItem((item) =>
+        item
+          .setTitle('Reset to saved settings')
+          .setIcon('rotate-ccw')
+          .onClick(() => this.applySession({ reset: true }))
+      );
+    }
+
+    menu.showAtMouseEvent(event);
   }
 
   /**

@@ -37,6 +37,7 @@
 
 .doomscroll-reshuffle-btn,
 .doomscroll-back-btn,
+.doomscroll-tune-btn,
 .doomscroll-settings-btn {
   display: flex;
   align-items: center;
@@ -53,6 +54,7 @@
 
 .doomscroll-reshuffle-btn:hover,
 .doomscroll-back-btn:hover:not(:disabled),
+.doomscroll-tune-btn:hover,
 .doomscroll-settings-btn:hover {
   background-color: var(--background-modifier-hover);
 }
