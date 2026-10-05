@@ -1,7 +1,18 @@
 import { Plugin, normalizePath } from 'obsidian';
-import { isPreviewSize, PluginData, StoredNotePreview } from './types';
+import {
+  FSRS_DEFAULT_TUNABLES,
+  isAlgorithmId,
+  isGradingMode,
+  isPreviewSize,
+  isSensitivity,
+  normalizeMaximumInterval,
+  normalizeRetention,
+  PluginData,
+  StoredNotePreview,
+} from './types';
 import { DEFAULT_SETTINGS, DoomscrollSettingTab } from './settings';
 import { Indexer } from './indexer';
+import { SrsStore, logSrsError } from './srsLog';
 import { DoomscrollView, VIEW_TYPE_DOOMSCROLL } from './view';
 
 const INDEX_FORMAT_VERSION = 3;
@@ -9,6 +20,8 @@ const INDEX_FORMAT_VERSION = 3;
 export default class DoomscrollPlugin extends Plugin {
   data!: PluginData;
   indexer!: Indexer;
+  /** Sidecar persistence for resurfacing state. */
+  srsStore!: SrsStore;
   private settingsRefreshTimer: number | null = null;
 
   async onload(): Promise<void> {
@@ -135,6 +148,55 @@ export default class DoomscrollPlugin extends Plugin {
       migrated = true;
     }
 
+    // Resurfacing settings are read from disk and are also hand-editable, so
+    // they get the same treatment as the older settings rather than being
+    // trusted. A retention value outside its range would otherwise silently
+    // produce nonsense intervals.
+    if (!isAlgorithmId(this.data.settings.algorithm)) {
+      this.data.settings.algorithm = DEFAULT_SETTINGS.algorithm;
+      migrated = true;
+    }
+
+    if (!isGradingMode(this.data.settings.gradingMode)) {
+      this.data.settings.gradingMode = DEFAULT_SETTINGS.gradingMode;
+      migrated = true;
+    }
+
+    if (!isSensitivity(this.data.settings.sensitivity)) {
+      this.data.settings.sensitivity = DEFAULT_SETTINGS.sensitivity;
+      migrated = true;
+    }
+
+    const storedTunables = this.data.settings.fsrsTunables;
+    if (!storedTunables || typeof storedTunables !== 'object') {
+      this.data.settings.fsrsTunables = { ...FSRS_DEFAULT_TUNABLES };
+      migrated = true;
+    } else {
+      const requestRetention = normalizeRetention(
+        storedTunables.requestRetention
+      );
+      const maximumInterval = normalizeMaximumInterval(
+        storedTunables.maximumInterval
+      );
+      const enableFuzz =
+        typeof storedTunables.enableFuzz === 'boolean'
+          ? storedTunables.enableFuzz
+          : FSRS_DEFAULT_TUNABLES.enableFuzz;
+
+      if (
+        requestRetention !== storedTunables.requestRetention ||
+        maximumInterval !== storedTunables.maximumInterval ||
+        enableFuzz !== storedTunables.enableFuzz
+      ) {
+        this.data.settings.fsrsTunables = {
+          requestRetention,
+          maximumInterval,
+          enableFuzz,
+        };
+        migrated = true;
+      }
+    }
+
     if (this.data.indexFormatVersion !== INDEX_FORMAT_VERSION) {
       // Rebuild all cached metadata once. This also repairs data written by
       // the intermediate on-demand-preview migration, which removed legacy
@@ -152,6 +214,21 @@ export default class DoomscrollPlugin extends Plugin {
 
     // Instantiate indexer
     this.indexer = new Indexer(this.app, this.data);
+
+    // Resurfacing state lives beside the plugin, not in data.json: appending a
+    // line is O(1), whereas data.json is rewritten in full on every change and
+    // drags the whole file through the sync chain each time.
+    this.srsStore = new SrsStore(
+      this.app.vault.adapter,
+      `${this.app.vault.configDir}/plugins/${this.manifest.id}`
+    );
+    try {
+      await this.srsStore.load();
+    } catch (error) {
+      // A broken sidecar must not stop the plugin loading. The feed still
+      // works without scheduling; the failure is reported rather than hidden.
+      logSrsError('resurfacing state unavailable; feed runs unscheduled', error);
+    }
 
     // Register view
     this.registerView(

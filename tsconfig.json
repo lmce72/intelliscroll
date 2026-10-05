@@ -11,6 +11,12 @@
     "moduleResolution": "node",
     "ignoreDeprecations": "5.0",
     "isolatedModules": true,
+    // Source files import each other with explicit ".ts" extensions so that
+    // `node --experimental-strip-types --test` can resolve them; Node's native
+    // ESM resolver does not do extension guessing. This also requires noEmit,
+    // which is already how the build runs tsc (esbuild does the emitting).
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "allowSyntheticDefaultImports": true,

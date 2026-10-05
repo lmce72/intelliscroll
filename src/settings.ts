@@ -9,9 +9,43 @@ import {
   type SettingDefinitionItem,
 } from 'obsidian';
 import DoomscrollPlugin from './main';
-import { isPreviewSize, PluginSettings } from './types';
+import { allAlgorithms } from './algorithms';
+import {
+  FSRS_DEFAULT_TUNABLES,
+  MAXIMUM_INTERVAL_MAX,
+  MAXIMUM_INTERVAL_MIN,
+  REQUEST_RETENTION_MAX,
+  REQUEST_RETENTION_MIN,
+  isAlgorithmId,
+  isGradingMode,
+  isPreviewSize,
+  isSensitivity,
+  normalizeMaximumInterval,
+  normalizeRetention,
+  type PluginSettings,
+} from './types';
 
-const GITHUB_URL = 'https://github.com/yaroshevych/doomscroll';
+/** Algorithm ids to display names, sourced from the registry itself. */
+const ALGORITHM_OPTIONS: Record<string, string> = Object.fromEntries(
+  allAlgorithms().map((algorithm) => [
+    algorithm.id,
+    algorithm.id === 'off' ? 'Off (shuffled feed)' : algorithm.label,
+  ])
+);
+
+const GRADING_MODE_OPTIONS: Record<string, string> = {
+  auto: 'Automatic only',
+  hybrid: 'Automatic, with manual override',
+  manual: 'Manual only',
+};
+
+const SENSITIVITY_OPTIONS: Record<string, string> = {
+  conservative: 'Conservative',
+  medium: 'Medium',
+  aggressive: 'Aggressive',
+};
+
+const GITHUB_URL = 'https://github.com/lmce72/intelliscroll';
 const ISSUES_URL = `${GITHUB_URL}/issues`;
 
 class FolderSuggest extends AbstractInputSuggest<string> {
@@ -66,6 +100,13 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   frontmatterImageProps: ['cover', 'image', 'banner'],
   frontmatterBeforeProps: [],
   frontmatterAfterProps: [],
+  // Resurfacing defaults to off so an upgrade is behaviour-preserving.
+  algorithm: 'off',
+  gradingMode: 'hybrid',
+  sensitivity: 'medium',
+  // Copied, not referenced: DEFAULT_SETTINGS must never be mutated through a
+  // shared object.
+  fsrsTunables: { ...FSRS_DEFAULT_TUNABLES },
 };
 
 export class DoomscrollSettingTab extends PluginSettingTab {
@@ -206,7 +247,97 @@ export class DoomscrollSettingTab extends PluginSettingTab {
           );
         },
       },
+      ...this.resurfacingSettings(),
     ];
+  }
+
+  /**
+   * Controls for the scheduling engine.
+   *
+   * Built conditionally because most of them only make sense for a particular
+   * algorithm: a retention slider is meaningless for Leitner, and grading
+   * controls are meaningless when nothing is being scheduled at all. Showing
+   * them regardless would invite users to configure things that do nothing.
+   */
+  private resurfacingSettings(): SettingDefinitionItem[] {
+    const settings = this.plugin.data.settings;
+
+    const items: SettingDefinitionItem[] = [
+      {
+        name: 'Resurfacing',
+        render: (setting) => {
+          setting.setName('Resurfacing').setHeading();
+        },
+      },
+      {
+        name: 'Algorithm',
+        desc: 'Decide which notes resurface and when. Off keeps the original shuffled feed and writes nothing.',
+        control: {
+          type: 'dropdown',
+          key: 'algorithm',
+          options: ALGORITHM_OPTIONS,
+        },
+      },
+    ];
+
+    if (settings.algorithm === 'off') return items;
+
+    items.push({
+      name: 'Grading',
+      desc: 'How a note gets rated as you scroll past it',
+      control: {
+        type: 'dropdown',
+        key: 'gradingMode',
+        options: GRADING_MODE_OPTIONS,
+      },
+    });
+
+    if (settings.gradingMode !== 'manual') {
+      items.push({
+        name: 'Automatic grading sensitivity',
+        desc: 'How much evidence counts as engagement. Only ever rates a note as engaged; it never records a failure.',
+        control: {
+          type: 'dropdown',
+          key: 'sensitivity',
+          options: SENSITIVITY_OPTIONS,
+        },
+      });
+    }
+
+    if (settings.algorithm === 'fsrs') {
+      items.push(
+        {
+          name: 'Desired retention',
+          desc: 'Target chance of still remembering a note when it returns. Higher means shorter intervals and many more reviews; 0.85-0.90 suits most people.',
+          control: {
+            type: 'slider',
+            key: 'requestRetention',
+            min: REQUEST_RETENTION_MIN,
+            max: REQUEST_RETENTION_MAX,
+            step: 0.01,
+            displayFormat: (value: number) => value.toFixed(2),
+          },
+        },
+        {
+          name: 'Maximum interval',
+          desc: 'Longest gap in days before a note is shown again',
+          control: {
+            type: 'number',
+            key: 'maximumInterval',
+            min: MAXIMUM_INTERVAL_MIN,
+            max: MAXIMUM_INTERVAL_MAX,
+            step: 1,
+          },
+        },
+        {
+          name: 'Fuzz due dates',
+          desc: 'Spread due dates slightly so notes do not all return on the same day',
+          control: { type: 'toggle', key: 'enableFuzz' },
+        }
+      );
+    }
+
+    return items;
   }
 
   getControlValue(key: string): unknown {
@@ -240,6 +371,18 @@ export class DoomscrollSettingTab extends PluginSettingTab {
         return settings.frontmatterBeforeProps.join('\n');
       case 'frontmatterAfterProps':
         return settings.frontmatterAfterProps.join('\n');
+      case 'algorithm':
+        return settings.algorithm;
+      case 'gradingMode':
+        return settings.gradingMode;
+      case 'sensitivity':
+        return settings.sensitivity;
+      case 'requestRetention':
+        return settings.fsrsTunables.requestRetention;
+      case 'maximumInterval':
+        return settings.fsrsTunables.maximumInterval;
+      case 'enableFuzz':
+        return settings.fsrsTunables.enableFuzz;
       default:
         return undefined;
     }
@@ -305,6 +448,41 @@ export class DoomscrollSettingTab extends PluginSettingTab {
       case 'frontmatterAfterProps':
         if (typeof value !== 'string') return;
         settings.frontmatterAfterProps = parseLines(value);
+        break;
+      case 'algorithm':
+        if (!isAlgorithmId(value)) return;
+        settings.algorithm = value;
+        break;
+      case 'gradingMode':
+        if (!isGradingMode(value)) return;
+        settings.gradingMode = value;
+        break;
+      case 'sensitivity':
+        if (!isSensitivity(value)) return;
+        settings.sensitivity = value;
+        break;
+      case 'requestRetention': {
+        // Clamped rather than rejected: the declarative slider cannot produce
+        // an out-of-range value, so anything that does is a hand-edited
+        // data.json, and clamping recovers from it instead of ignoring the
+        // user's edit.
+        const requestRetention = normalizeRetention(value);
+        if (requestRetention === settings.fsrsTunables.requestRetention) return;
+        settings.fsrsTunables = {
+          ...settings.fsrsTunables,
+          requestRetention,
+        };
+        break;
+      }
+      case 'maximumInterval': {
+        const maximumInterval = normalizeMaximumInterval(value);
+        if (maximumInterval === settings.fsrsTunables.maximumInterval) return;
+        settings.fsrsTunables = { ...settings.fsrsTunables, maximumInterval };
+        break;
+      }
+      case 'enableFuzz':
+        if (typeof value !== 'boolean') return;
+        settings.fsrsTunables = { ...settings.fsrsTunables, enableFuzz: value };
         break;
       default:
         return;

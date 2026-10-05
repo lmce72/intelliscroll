@@ -1,5 +1,5 @@
 {
-  "name": "doomscroll",
+  "name": "intelliscroll",
   "version": "0.1.9",
   "description": "Doomscroll your own notes, not someone else's feed.",
   "main": "main.js",
@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "test": "node --experimental-strip-types --test test"
+    "test": "node --experimental-strip-types --test test/*.test.ts"
   },
   "keywords": [],
   "author": "yaroshevych",
@@ -17,5 +17,8 @@
     "esbuild": "^0.25.5",
     "obsidian": "latest",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "ts-fsrs": "^5.4.2"
   }
 }

@@ -1,10 +1,10 @@
 {
-  "id": "doomscroll",
-  "name": "Doomscroll",
+  "id": "intelliscroll",
+  "name": "IntelliScroll",
   "version": "0.1.9",
   "minAppVersion": "1.7.2",
-  "description": "Scroll through your own notes, not someone else's feed.",
-  "author": "yaroshevych",
-  "authorUrl": "https://github.com/yaroshevych",
+  "description": "Resurface your own notes on a spaced-repetition schedule. Nothing is ever written into your notes.",
+  "author": "lmce72",
+  "authorUrl": "https://github.com/lmce72",
   "isDesktopOnly": false
 }

@@ -1,14 +1,68 @@
-import type { NotePreview, ViewHistoryEntry } from './types';
+import type {
+  AlgorithmId,
+  NotePreview,
+  NoteSrsState,
+  ViewHistoryEntry,
+} from './types.ts';
 
 const COOLDOWN_MS = 30 * 60 * 1000;
 const RECENTLY_VIEWED_MS = 7 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Priority bonus, expressed in days of overdue-ness, for a note that was shown
+ * but not engaged with.
+ *
+ * This is how a skipped note gets a second chance without touching its
+ * schedule. A skip is the absence of a review, not a failed one, so it must
+ * never shorten an interval — but letting it drop silently to the back of the
+ * queue would starve notes the user genuinely has not read.
+ */
+const UNENGAGED_BOOST_DAYS = 1;
+
+/**
+ * Random spread, in days, added to each priority.
+ *
+ * Without this the feed becomes a strict due-date ordering, which loses the
+ * scroll feel the plugin is built around. One day of spread means a note that
+ * is meaningfully overdue still reliably wins, while near-ties shuffle.
+ */
+const PRIORITY_JITTER_DAYS = 1;
+
+/**
+ * Share of each batch reserved for notes the scheduler has no review history
+ * for.
+ *
+ * Without a reservation, a backlog of overdue notes fills every batch forever
+ * and the bulk of a mostly-unreviewed vault is never seen — a cold-start
+ * starvation loop where notes that are never shown can never accrue the
+ * history that would make them showable.
+ */
+const EXPLORE_RATIO = 0.25;
+
+export interface SelectionOptions {
+  /** The active scheduler. `off` (or omitted) keeps the original shuffle. */
+  algorithm?: AlgorithmId;
+  /** Per-note scheduling state, keyed by path. */
+  states?: Readonly<Record<string, NoteSrsState>>;
+  /** Injectable for deterministic tests. Defaults to Math.random. */
+  rng?: () => number;
+}
 
 export function selectBatch(
   candidates: NotePreview[],
   history: ViewHistoryEntry[],
   batchSize: number,
-  now: number
+  now: number,
+  options: SelectionOptions = {}
 ): NotePreview[] {
+  const rng = options.rng ?? Math.random;
+  const states = options.states;
+  const scheduling =
+    options.algorithm !== undefined &&
+    options.algorithm !== 'off' &&
+    states !== undefined;
+
   const lastViewedAt = new Map<string, number>();
   for (const entry of history) {
     const previous = lastViewedAt.get(entry.path);
@@ -51,9 +105,13 @@ export function selectBatch(
     batchSize - recentCount - freshCount
   );
 
-  // A partial Fisher-Yates sample only touches the notes this batch will use.
-  const selectedRecent = takeRandom(recentWeek, recentCount + additionalRecent);
-  const selectedFresh = takeRandom(fresh, freshCount);
+  const pick = scheduling
+    ? (items: NotePreview[], count: number) =>
+        takeByPriority(items, count, states, now, rng)
+    : (items: NotePreview[], count: number) => takeRandom(items, count, rng);
+
+  const selectedRecent = pick(recentWeek, recentCount + additionalRecent);
+  const selectedFresh = pick(fresh, freshCount);
 
   return [
     ...selectedRecent.slice(0, recentCount),
@@ -62,9 +120,80 @@ export function selectBatch(
   ];
 }
 
-function takeRandom<T>(items: T[], count: number): T[] {
+/**
+ * How strongly a reviewed note wants to be shown, in days of overdue-ness.
+ *
+ * Only ever called for notes that have actually been reviewed. A note that was
+ * merely shown and skipped carries `reviews === 0` and is deliberately kept
+ * out of this path: its placeholder state has `due: 0`, and treating that as a
+ * real due date would compute roughly 19,700 days overdue and pin every
+ * skipped note to the top of the feed permanently.
+ */
+function priorityOf(
+  state: NoteSrsState,
+  now: number,
+  rng: () => number
+): number {
+  let score = (now - state.due) / DAY_MS;
+  if (state.unengagedAt !== undefined) {
+    score += UNENGAGED_BOOST_DAYS;
+  }
+  return score + rng() * PRIORITY_JITTER_DAYS;
+}
+
+type ScoredPreview = { item: NotePreview; score: number };
+
+function takeByPriority(
+  items: NotePreview[],
+  count: number,
+  states: Readonly<Record<string, NoteSrsState>>,
+  now: number,
+  rng: () => number
+): NotePreview[] {
+  const scheduled: ScoredPreview[] = [];
+  const unscheduled: NotePreview[] = [];
+
+  for (const item of items) {
+    const state = states[item.path];
+    if (state && state.reviews > 0) {
+      scheduled.push({ item, score: priorityOf(state, now, rng) });
+    } else {
+      unscheduled.push(item);
+    }
+  }
+
+  scheduled.sort((a, b) => b.score - a.score);
+  shuffleInPlace(unscheduled, rng);
+
+  // Reserve a slice for notes with no review history, then let the two pools
+  // top each other up so a batch is still full when one side runs dry.
+  const reserved = Math.min(
+    unscheduled.length,
+    Math.floor(count * EXPLORE_RATIO)
+  );
+
+  let fromScheduled = Math.min(scheduled.length, count - reserved);
+  let fromUnscheduled = Math.min(unscheduled.length, count - fromScheduled);
+
+  fromScheduled = Math.min(scheduled.length, count - fromUnscheduled);
+  fromUnscheduled = Math.min(unscheduled.length, count - fromScheduled);
+
+  return [
+    ...scheduled.slice(0, fromScheduled).map((entry) => entry.item),
+    ...unscheduled.slice(0, fromUnscheduled),
+  ];
+}
+
+function shuffleInPlace<T>(items: T[], rng: () => number): void {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [items[i], items[j]] = [items[j]!, items[i]!];
+  }
+}
+
+function takeRandom<T>(items: T[], count: number, rng: () => number): T[] {
   for (let i = 0; i < count; i++) {
-    const j = i + Math.floor(Math.random() * (items.length - i));
+    const j = i + Math.floor(rng() * (items.length - i));
     [items[i], items[j]] = [items[j]!, items[i]!];
   }
 

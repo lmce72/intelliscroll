@@ -51,5 +51,5 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" main.js manifest.json styles.css --clobber
           else
             gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css \
-              --verify-tag --title "Doomscroll $GITHUB_REF_NAME" --generate-notes
+              --verify-tag --title "IntelliScroll $GITHUB_REF_NAME" --generate-notes
           fi

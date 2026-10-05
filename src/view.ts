@@ -17,8 +17,16 @@ import {
   NotePreview,
   PreviewSize,
   toNotePreview,
+  type AlgorithmId,
+  type FsrsTunables,
+  type GradingMode,
+  type NoteSrsState,
+  type Sensitivity,
 } from './types';
 import { selectBatch } from './selector';
+import { getAlgorithm } from './algorithms';
+import { clampDwell, gradeEngagement, ratingForVerdict } from './grading';
+import { SrsStore, logSrsError } from './srsLog';
 import { pickCardIndex } from './navigation';
 import { ShortcutsModal } from './help';
 import { recordView } from './history';
@@ -118,6 +126,22 @@ export class DoomscrollView extends ItemView {
   private isClosed = false;
   private pluginRefreshTimer: number | null = null;
   private pluginRefreshExcludePaths = new Set<string>();
+
+  /**
+   * Live tweaks made from the feed header, applied to this session only.
+   *
+   * Deliberately not persisted: the point is to let the user try a setting
+   * without committing it, so reopening the feed returns to the saved value.
+   */
+  private sessionAlgorithm: AlgorithmId | null = null;
+  private sessionTunables: FsrsTunables | null = null;
+  private sessionGradingMode: GradingMode | null = null;
+  private sessionSensitivity: Sensitivity | null = null;
+
+  /** Visible time accumulated per path for the current batch. */
+  private dwell = new Map<string, { ms: number; opened: boolean }>();
+  /** Paths currently intersecting, mapped to when they became visible. */
+  private visibleSince = new Map<string, number>();
 
   constructor(leaf: WorkspaceLeaf, plugin: DoomscrollPlugin) {
     super(leaf);
@@ -749,7 +773,11 @@ export class DoomscrollView extends ItemView {
         this.plugin.data.settings.infiniteScroll
           ? INFINITE_SCROLL_CHUNK_SIZE
           : this.plugin.data.settings.batchSize,
-        Date.now()
+        Date.now(),
+        {
+          algorithm: this.effectiveAlgorithm(),
+          states: this.effectiveStates(),
+        }
       );
       this.batchSettingsKey = this.getBatchSettingsKey();
       if (
@@ -774,6 +802,9 @@ export class DoomscrollView extends ItemView {
     this.renderedPreviewSize = this.getPreviewSize();
     this.renderedFrontmatterPropertiesKey = this.getFrontmatterPropertiesKey();
     this.updateBackButton();
+
+    // Finalise the outgoing batch's dwell before its cards are torn down.
+    this.flushEngagement();
 
     // Stop observing cards from the previous batch before replacing them.
     this.cardObserver?.disconnect();
@@ -826,14 +857,144 @@ export class DoomscrollView extends ItemView {
     }
   }
 
+  /** The algorithm in force: a header tweak if set, otherwise the saved one. */
+  private effectiveAlgorithm(): AlgorithmId {
+    return this.sessionAlgorithm ?? this.plugin.data.settings.algorithm;
+  }
+
+  private effectiveGradingMode(): GradingMode {
+    return this.sessionGradingMode ?? this.plugin.data.settings.gradingMode;
+  }
+
+  private effectiveSensitivity(): Sensitivity {
+    return this.sessionSensitivity ?? this.plugin.data.settings.sensitivity;
+  }
+
+  /** FSRS parameters in force: header tweaks layered over the saved ones. */
+  private effectiveTunables(): FsrsTunables {
+    return this.sessionTunables ?? this.plugin.data.settings.fsrsTunables;
+  }
+
+  /**
+   * Per-note scheduling state, or undefined when nothing is being scheduled.
+   * Returning undefined is what makes `selectBatch` fall back to the original
+   * shuffle, so a missing store degrades instead of breaking.
+   */
+  private effectiveStates():
+    | Readonly<Record<string, NoteSrsState>>
+    | undefined {
+    if (this.effectiveAlgorithm() === 'off') return undefined;
+    if (!this.plugin.srsStore?.isLoaded) return undefined;
+    return this.plugin.srsStore.getStates();
+  }
+
+  private markCardVisible(path: string): void {
+    if (this.visibleSince.has(path)) return;
+    this.visibleSince.set(path, Date.now());
+    if (!this.dwell.has(path)) this.dwell.set(path, { ms: 0, opened: false });
+  }
+
+  private markCardHidden(path: string): void {
+    const since = this.visibleSince.get(path);
+    if (since === undefined) return;
+    this.visibleSince.delete(path);
+
+    // Timestamps rather than frame counting: requestAnimationFrame stops
+    // firing while a pane is hidden in this vault, so accumulating frames
+    // would report hours of dwell for a pane that was switched away from.
+    const entry = this.dwell.get(path) ?? { ms: 0, opened: false };
+    entry.ms = clampDwell(entry.ms + (Date.now() - since));
+    this.dwell.set(path, entry);
+  }
+
+  /** Record that the user opened this card, the strongest signal available. */
+  private markCardOpened(path: string): void {
+    const entry = this.dwell.get(path) ?? { ms: 0, opened: false };
+    entry.opened = true;
+    this.dwell.set(path, entry);
+  }
+
+  /**
+   * Turn accumulated dwell into reviews, then reset.
+   *
+   * Called before a batch is replaced and when the view closes, so the last
+   * visible stretch of a card is not lost.
+   */
+  private flushEngagement(): void {
+    const algorithm = this.effectiveAlgorithm();
+    const samples = Array.from(this.dwell.entries());
+    const now = Date.now();
+
+    this.dwell.clear();
+    this.visibleSince.clear();
+
+    if (algorithm === 'off') return;
+    // Manual grading records only explicit ratings, never observed behaviour.
+    if (this.effectiveGradingMode() === 'manual') return;
+    if (!this.plugin.srsStore?.isLoaded) return;
+    if (!getAlgorithm(algorithm).schedules) return;
+
+    for (const [path, sample] of samples) {
+      const verdict = gradeEngagement(
+        { opened: sample.opened, dwellMs: sample.ms },
+        this.effectiveSensitivity()
+      );
+      void this.recordEngagement(path, verdict, algorithm, now);
+    }
+  }
+
+  private async recordEngagement(
+    path: string,
+    verdict: 'engaged' | 'unengaged',
+    algorithm: AlgorithmId,
+    now: number
+  ): Promise<void> {
+    try {
+      const rating = ratingForVerdict(verdict);
+      if (rating === null) {
+        // A skip is the absence of a review: no schedule change, only
+        // priority, so it comes back around sooner.
+        await this.plugin.srsStore.recordUnengaged(path, now, algorithm);
+        return;
+      }
+
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) return;
+      const content = await this.app.vault.cachedRead(file);
+
+      await this.plugin.srsStore.recordReview(
+        {
+          path,
+          rating,
+          algorithm,
+          source: 'auto',
+          hash: SrsStore.hashContent(content),
+          now,
+          tunables: this.effectiveTunables(),
+        },
+        getAlgorithm(algorithm)
+      );
+    } catch (error) {
+      // A scheduling failure must never break the feed.
+      logSrsError(`failed to record engagement for ${path}`, error);
+    }
+  }
+
   private createCardObserver(container: HTMLElement): IntersectionObserver {
     return new IntersectionObserver(
       (entries) => {
         let historyChanged = false;
         for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
           const card = entry.target as HTMLElement;
           const path = card.dataset.path;
+
+          if (!entry.isIntersecting) {
+            // Cards are no longer unobserved on first sight: dwell needs both
+            // edges, so the observer now tracks leaving as well as entering.
+            if (path) this.markCardHidden(path);
+            continue;
+          }
+
           const preview = this.currentBatch.find(
             (candidate) => candidate.path === path
           );
@@ -841,16 +1002,18 @@ export class DoomscrollView extends ItemView {
           if (preview && snippetEl instanceof HTMLElement) {
             void this.renderSnippet(preview, snippetEl);
           }
-          if (path && !this.viewedPathsInBatch.has(path)) {
-            this.viewedPathsInBatch.add(path);
-            this.plugin.data.history = recordView(
-              this.plugin.data.history,
-              path,
-              Date.now()
-            );
-            historyChanged = true;
+          if (path) {
+            this.markCardVisible(path);
+            if (!this.viewedPathsInBatch.has(path)) {
+              this.viewedPathsInBatch.add(path);
+              this.plugin.data.history = recordView(
+                this.plugin.data.history,
+                path,
+                Date.now()
+              );
+              historyChanged = true;
+            }
           }
-          this.cardObserver?.unobserve(card);
         }
         if (historyChanged) this.scheduleHistorySave();
       },
@@ -911,7 +1074,11 @@ export class DoomscrollView extends ItemView {
         candidates,
         this.plugin.data.history,
         INFINITE_SCROLL_CHUNK_SIZE,
-        Date.now()
+        Date.now(),
+        {
+          algorithm: this.effectiveAlgorithm(),
+          states: this.effectiveStates(),
+        }
       );
 
       if (nextBatch.length === 0) {
@@ -1578,6 +1745,11 @@ export class DoomscrollView extends ItemView {
     const file = this.plugin.app.vault.getAbstractFileByPath(preview.path);
 
     if (file instanceof TFile) {
+      // Opening a note is the strongest engagement signal available, and it
+      // must be captured here: the note may be opened before the observer has
+      // had a chance to see the card at all.
+      this.markCardOpened(preview.path);
+
       // A very quick tap can happen before IntersectionObserver fires.
       if (!this.viewedPathsInBatch.has(preview.path)) {
         this.viewedPathsInBatch.add(preview.path);
@@ -1739,6 +1911,9 @@ export class DoomscrollView extends ItemView {
   async onClose(): Promise<void> {
     this.cancelScrollAnimation();
     this.isClosed = true;
+
+    // Capture whatever the last batch was showing before the view goes away.
+    this.flushEngagement();
     this.snippetRenderGenerations = new WeakMap();
     this.pluginRefreshExcludePaths.clear();
     if (this.pluginRefreshTimer !== null) {
@@ -1771,6 +1946,14 @@ export class DoomscrollView extends ItemView {
       this.historySaveTimer = null;
     }
     await this.flushHistorySave();
+
+    // The engagement flush above dispatches its writes asynchronously, so let
+    // them settle before the view is gone.
+    try {
+      await this.plugin.srsStore?.flush();
+    } catch (error) {
+      logSrsError('failed to flush resurfacing state on close', error);
+    }
   }
 
   private cacheCardSize(card: Element | null): void {

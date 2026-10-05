@@ -1,26 +1,56 @@
-# Doomscroll
+# IntelliScroll
 
-**Doomscroll your own notes.**
+**Scroll your own notes, resurfaced on a forgetting curve.**
 
-I used to be an engineering manager on Instagram Reels. Now I am using the same
-feed format to scroll through my own notes.
+A fork of [Doomscroll](https://github.com/yaroshevych/doomscroll) that replaces
+the pure-random shuffle with a spaced-repetition scheduler.
 
-No ranking algorithm, no cloud service, no celebrities. Just notes, web
-snippets, book quotes, and other things already sitting in my Obsidian vault.
+**Nothing is ever written into your notes.** No frontmatter properties, no
+inline markers, no note IDs. Every scheduler already in the Obsidian ecosystem
+either stamps state into your notes or requires you to author flashcards;
+IntelliScroll keeps all state in its own sidecar files and treats the notes you
+already wrote as the review material.
+
+Installs as a separate plugin (`intelliscroll`), so it can sit alongside
+Doomscroll rather than replacing it.
+
+## Why a scheduler instead of a shuffle
+
+In a single-author vault, "recently modified" is the *wrong* signal — the notes
+you just wrote are the ones you already know. What matters is **time since you
+last saw it**. That is a forgetting curve, not a recency feed.
+
+So the feed keeps its scroll format and gains a scheduling engine behind it.
+Four are available, and the default is `off`, which reproduces the original
+shuffled feed exactly:
+
+| Algorithm | Notes |
+| --- | --- |
+| `Off` | The original shuffle. Default, so upgrading changes nothing. |
+| `FSRS-6` | Recommended. The only option that handles irregular review timing well — which a scroll feed inevitably produces. |
+| `SM-2` | Classic SuperMemo 2. Transparent, no fitted parameters, included as a baseline. |
+| `Leitner` | Fixed interval ladder, two grades. The simplest option. |
+
+## What it deliberately does not do
+
+- **It does not guess how well you remembered something.** Automatic grading
+  can only ever conclude "engaged" or "not engaged"; it never invents a
+  negative rating. Behavioural proxies match explicit self-ratings only about
+  65% of the time, so a card you scroll past is recorded as *unseen*, not as
+  failed — its schedule is untouched, only its priority rises. Feeding skips in
+  as failures would fabricate lapses and spiral.
+- **It is not a memory trainer.** Reviewing a whole note is re-reading, not
+  active recall: expect roughly 40–50% one-week retention versus 60–70% for
+  flashcards. This is a resurfacing layer for notes you do not want to
+  formalise into cards.
+
+## State and privacy
+
+All scheduling state lives in two files beside the plugin
+(`srs-log.ndjson` and `srs-snapshot.json`). Nothing is sent anywhere, and no
+note file is modified — that is the property the test suite guards hardest.
 
 ## Why
-
-My problem was simple: I write a lot, save a lot, but rarely come back to any of
-it. Jotted notes, diary entries, LLM Wiki pages - all had the same problem. The
-content was great. I just didn't feel like going back to it.
-
-My vault became write-only.
-
-Social apps are very good at resurfacing content. Personal knowledge management
-tools are not. Doomscroll borrows the science behind the social feed and applies
-it to your vault, so you are motivated to engage with your notes.
-
-Same scroll. Your content.
 
 <img src="https://github.com/user-attachments/assets/bbb240b2-e7bd-4ee7-af4e-b9f583d74629" height="400px" alt="Doomscroll on mobile" />
 
