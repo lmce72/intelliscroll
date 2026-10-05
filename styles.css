@@ -38,6 +38,8 @@
 .doomscroll-reshuffle-btn,
 .doomscroll-back-btn,
 .doomscroll-tune-btn,
+.doomscroll-filter-btn,
+.doomscroll-save-preset-btn,
 .doomscroll-settings-btn {
   display: flex;
   align-items: center;
@@ -55,11 +57,16 @@
 .doomscroll-reshuffle-btn:hover,
 .doomscroll-back-btn:hover:not(:disabled),
 .doomscroll-tune-btn:hover,
+.doomscroll-filter-btn:hover,
+.doomscroll-save-preset-btn:hover:not(:disabled),
 .doomscroll-settings-btn:hover {
   background-color: var(--background-modifier-hover);
 }
 
-.doomscroll-back-btn:disabled {
+/* The save button is inert until there is something to save; the back button
+   is inert when there is nowhere to go back to. */
+.doomscroll-back-btn:disabled,
+.doomscroll-save-preset-btn:disabled {
   opacity: 0.35;
   cursor: default;
 }

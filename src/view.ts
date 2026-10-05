@@ -5,11 +5,15 @@ import {
   Events,
   MarkdownRenderer,
   Menu,
+  Modal,
   Platform,
   Scope,
+  Setting,
+  TextComponent,
   WorkspaceLeaf,
   TFile,
   setIcon,
+  type App,
 } from 'obsidian';
 import DoomscrollPlugin from './main';
 import { preparePreviewMarkdown, prepareRenderedPreview } from './extract';
@@ -60,6 +64,70 @@ const RATING_LABELS: Record<Rating, string> = {
 };
 
 const RATING_ORDER: readonly Rating[] = ['again', 'hard', 'good', 'easy'];
+
+/**
+ * Asks for a preset name.
+ *
+ * Obsidian has no built-in single-line prompt, and `window.prompt` is not
+ * available in the mobile WebView, so this is a minimal modal using the native
+ * component classes.
+ */
+class PresetNameModal extends Modal {
+  private value: string;
+
+  constructor(
+    app: App,
+    private readonly heading: string,
+    initial: string,
+    private readonly onSubmit: (name: string) => void
+  ) {
+    super(app);
+    this.value = initial;
+  }
+
+  onOpen(): void {
+    this.titleEl.setText(this.heading);
+
+    const input = new TextComponent(this.contentEl);
+    input.setValue(this.value);
+    input.onChange((value) => {
+      this.value = value;
+    });
+    input.inputEl.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        this.submit();
+      }
+    });
+
+    new Setting(this.contentEl)
+      .addButton((button) =>
+        button
+          .setButtonText('Save')
+          .setCta()
+          .onClick(() => this.submit())
+      )
+      .addButton((button) =>
+        button.setButtonText('Cancel').onClick(() => this.close())
+      );
+
+    input.inputEl.focus();
+    input.inputEl.select();
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+
+  private submit(): void {
+    const name = this.value.trim();
+    // An unnamed preset would be unreachable in the menu, so refuse rather
+    // than create one the user cannot identify.
+    if (name.length === 0) return;
+    this.close();
+    this.onSubmit(name);
+  }
+}
 const MAX_BATCH_HISTORY = 20;
 const MAX_RENDERED_SNIPPET_CACHE_ENTRIES = 100;
 const MAX_IMAGE_DIMENSION_CACHE_ENTRIES = 200;
@@ -155,6 +223,8 @@ export class DoomscrollView extends ItemView {
    * kept locally, since the header is rebuilt on every render.
    */
   private tuneButton: HTMLButtonElement | null = null;
+  private filterButton: HTMLButtonElement | null = null;
+  private savePresetButton: HTMLButtonElement | null = null;
 
   /** Visible time accumulated per path for the current batch. */
   private dwell = new Map<string, { ms: number; opened: boolean }>();
@@ -632,6 +702,28 @@ export class DoomscrollView extends ItemView {
     });
     this.tuneButton = tuneBtn;
     this.updateTuneButton();
+
+    // Filter preset button: switch which notes are eligible without leaving the
+    // feed, and adjust one temporarily.
+    const filterBtn = controls.createEl('button');
+    filterBtn.className = 'doomscroll-filter-btn';
+    setIcon(filterBtn, 'filter');
+    filterBtn.addEventListener('click', (event) => {
+      this.showFilterMenu(event);
+    });
+    this.filterButton = filterBtn;
+
+    // Save button: turn the temporary filter into a named preset. Only useful
+    // once something has actually been changed, so it stays disabled until then.
+    const saveBtn = controls.createEl('button');
+    saveBtn.className = 'doomscroll-save-preset-btn';
+    setIcon(saveBtn, 'save');
+    saveBtn.addEventListener('click', () => {
+      this.promptSaveFilterPreset();
+    });
+    this.savePresetButton = saveBtn;
+
+    this.updatePresetButtons();
 
     // Settings button
     const settingsBtn = controls.createEl('button');
@@ -1183,6 +1275,111 @@ export class DoomscrollView extends ItemView {
   }
 
   /** Whether the feed should offer a manual rating on each card. */
+  /**
+   * Reflect the filter button's state.
+   *
+   * The save button is only meaningful once something has been changed
+   * temporarily, so it is disabled otherwise rather than silently doing
+   * nothing when pressed.
+   */
+  private updatePresetButtons(): void {
+    const overridden = this.plugin.hasSessionFilterOverride();
+
+    if (this.filterButton) {
+      this.filterButton.toggleClass('mod-cta', overridden);
+      const label = overridden
+        ? 'Filter preset (temporary changes active)'
+        : 'Filter preset';
+      this.filterButton.setAttribute('aria-label', label);
+      this.filterButton.setAttribute('title', label);
+    }
+
+    if (this.savePresetButton) {
+      this.savePresetButton.disabled = !overridden;
+      const label = overridden
+        ? 'Save the temporary filter as a new preset'
+        : 'Nothing to save: no temporary filter changes';
+      this.savePresetButton.setAttribute('aria-label', label);
+      this.savePresetButton.setAttribute('title', label);
+    }
+  }
+
+  private showFilterMenu(event: MouseEvent): void {
+    const menu = new Menu();
+    const library = this.plugin.data.settings.presets;
+    const activeId = this.plugin.data.settings.activeFilterPresetId;
+    const overridden = this.plugin.hasSessionFilterOverride();
+
+    menu.addItem((item) => item.setTitle('Filter preset').setIsLabel(true));
+    for (const preset of library.filters) {
+      menu.addItem((item) =>
+        item
+          .setTitle(preset.name)
+          // Only one can be in force, so the tick is suppressed while a
+          // temporary change is active rather than implying the saved preset
+          // still describes what is showing.
+          .setChecked(!overridden && preset.id === activeId)
+          .onClick(() => {
+            void this.selectFilterPreset(preset.id);
+          })
+      );
+    }
+
+    if (overridden) {
+      menu.addSeparator();
+      menu.addItem((item) =>
+        item.setTitle('Temporary filter in force').setIsLabel(true)
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle('Save as a new preset…')
+          .setIcon('save')
+          .onClick(() => this.promptSaveFilterPreset())
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle('Discard temporary changes')
+          .setIcon('rotate-ccw')
+          .onClick(() => this.discardFilterOverride())
+      );
+    }
+
+    menu.showAtMouseEvent(event);
+  }
+
+  private async selectFilterPreset(id: string): Promise<void> {
+    // Choosing a saved preset discards the experiment, so what is in force is
+    // exactly what the preset says. Other groups' overrides are untouched.
+    this.plugin.clearSessionFilterOverride();
+    await this.plugin.selectPreset('filter', id);
+    this.updatePresetButtons();
+  }
+
+  private discardFilterOverride(): void {
+    this.plugin.clearSessionFilterOverride();
+    this.updatePresetButtons();
+    this.batchSettingsKey = null;
+    void this.refreshForCurrentSettings();
+  }
+
+  private promptSaveFilterPreset(): void {
+    if (!this.plugin.hasSessionFilterOverride()) return;
+    const activeFilter = this.plugin.data.settings.presets.filters.find(
+      (preset) =>
+        preset.id === this.plugin.data.settings.activeFilterPresetId
+    );
+    const suggestion = `${activeFilter?.name ?? 'Filter'} (temporary)`;
+
+    new PresetNameModal(this.app, 'Save filter preset', suggestion, (name) => {
+      void this.saveFilterPreset(name);
+    }).open();
+  }
+
+  private async saveFilterPreset(name: string): Promise<void> {
+    await this.plugin.saveSessionFilterAsPreset(name);
+    this.updatePresetButtons();
+  }
+
   private shouldOfferExplicitRating(): boolean {
     if (this.effectiveAlgorithm() === 'off') return false;
     return this.effectiveGradingMode() !== 'auto';

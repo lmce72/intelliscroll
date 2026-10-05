@@ -297,6 +297,16 @@ export default class DoomscrollPlugin extends Plugin {
     this.sessionDisplay = null;
   }
 
+  /**
+   * Drop only the filter override.
+   *
+   * Selecting a saved filter preset must not also discard an algorithm tweak
+   * the user is still experimenting with — they are independent knobs.
+   */
+  clearSessionFilterOverride(): void {
+    this.sessionFilter = null;
+  }
+
   /** Switch which saved preset is active. Leaves any session override alone. */
   async selectPreset(
     kind: 'filter' | 'algorithm' | 'display',
