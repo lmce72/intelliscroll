@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DAY_MS, getAlgorithm } from '../src/algorithms/index.ts';
 import type { LadderStep } from '../src/algorithms/index.ts';
-import { expandTiers, retentionWindow } from '../src/tiers.ts';
+import { expandTiers, ladderResolution, retentionWindow } from '../src/tiers.ts';
 import type { Tier } from '../src/tiers.ts';
 import { formatTierInterval } from '../src/tierDisplay.ts';
 
@@ -403,4 +403,57 @@ test('an interpolated rung states no commitment, because it has none', () => {
 
   assert.ok(text.includes('4.2'), `shows the model interval: ${text}`);
   assert.equal(/commit|schedul|提交/i.test(text), false, `no commitment claim: ${text}`);
+});
+
+// ─── What the ladder is not saying ─────────────────────────────────────────
+
+test('a ladder pinned by the cap is reported as pinned', () => {
+  // Three rungs reading "30 days" look like three choices. They are three
+  // grades the cap truncated onto the same day, and the numbers do not say so.
+  // `modelDays` arrives already clamped by the cap, so the pinned grades are
+  // also equal to each other — which is why the tie must not be reported
+  // separately, or the panel says it twice.
+  const ladder = stepsFromIntervals([1, 30, 30, 30], [0.5, 30, 30, 30]);
+  const resolution = ladderResolution(ladder, 30);
+
+  assert.deepEqual(resolution.capPinned, ['hard', 'good', 'easy']);
+  assert.deepEqual(
+    resolution.tied,
+    [],
+    'the cap is the explanation, so the tie is not repeated'
+  );
+});
+
+test('a ladder the model cannot separate is reported as tied', () => {
+  // A note reviewed earlier the same day: FSRS recomputes elapsed in whole
+  // days, so there is no new difficulty information and three grades keep one
+  // stability. The equal numbers are honest; that they are equal because the
+  // model is silent is not self-evident.
+  const ladder = stepsFromIntervals([1, 2, 3, 4], [0.52, 2.3, 2.3, 2.3]);
+  const resolution = ladderResolution(ladder, 30);
+
+  assert.deepEqual(resolution.tied, ['good', 'easy']);
+  assert.deepEqual(resolution.capPinned, [], 'nothing is on the cap here');
+});
+
+test('a ladder that is doing its job is reported as saying nothing', () => {
+  // A notice on every card would be noise, so the common case must be silent.
+  const ladder = stepsFromIntervals([1, 5, 12, 30], [0.9, 5.1, 12.4, 28.7]);
+  const resolution = ladderResolution(ladder, 30);
+
+  assert.deepEqual(resolution.capPinned, []);
+  assert.deepEqual(resolution.tied, []);
+});
+
+test('a malformed cap never makes every grade look pinned', () => {
+  // A non-finite cap must not turn into "everything is pinned", which would
+  // put a warning on every card.
+  const ladder = stepsFromIntervals([1, 5, 12, 30], [0.9, 5.1, 12.4, 28.7]);
+  for (const cap of [Number.NaN, 0, -5, Number.POSITIVE_INFINITY]) {
+    assert.deepEqual(
+      ladderResolution(ladder, cap).capPinned,
+      [],
+      `cap ${cap} must not pin anything`
+    );
+  }
 });

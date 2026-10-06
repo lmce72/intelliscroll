@@ -140,8 +140,11 @@ export const messages: MessageModule = {
     'settings.requestRetention.name': 'Desired retention',
     'settings.requestRetention.desc':
       'Target chance of still remembering a note when it returns. Higher means shorter intervals and many more reviews; 0.85-0.90 suits most people.',
+    // Says what the number is measured on. The window comes from a synthetic
+    // reference note, not from the note you happen to be looking at, so
+    // stating it bare reads as a property of every note.
     'settings.requestRetention.window':
-      'The {gap}-day top-gap rule allows {min} to {max} at this maximum interval.',
+      'Measured on a reference note, the {gap}-day top-gap rule allows {min} to {max} at this maximum interval. A given note can respond over a narrower span.',
     'settings.requestRetention.windowFallback':
       'No retention value satisfies the {gap}-day top-gap rule at this maximum interval, so the full range is offered. Lower the maximum interval or the top gap.',
     'settings.requestRetention.outside':
@@ -288,7 +291,7 @@ export const messages: MessageModule = {
     'settings.requestRetention.desc':
       '笔记再次出现时仍记得的目标概率。数值越高，间隔越短、复习次数越多；0.85-0.90 适合大多数人。',
     'settings.requestRetention.window':
-      '当前最大间隔下，{gap} 天档位差规则允许 {min} 到 {max}。',
+      '以参考笔记测得：当前最大间隔下，{gap} 天档位差规则允许 {min} 到 {max}。具体某篇笔记的有效区间可能更窄。',
     'settings.requestRetention.windowFallback':
       '当前最大间隔下，没有任何保持率能满足 {gap} 天档位差规则，因此开放完整区间。请调低最大间隔或档位差。',
     'settings.requestRetention.outside':

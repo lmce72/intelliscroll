@@ -9,7 +9,7 @@ import {
   normalizeTierCount,
   type Rating,
 } from './types.ts';
-import { expandTiers, type Tier } from './tiers.ts';
+import { expandTiers, ladderResolution, type Tier } from './tiers.ts';
 import { formatTierInterval } from './tierDisplay.ts';
 import {
   RETENTION_STEP,
@@ -278,6 +278,56 @@ function tiersFor(
  * Falling back to the envelope when no window exists is correct: a rule that
  * admits nothing would lock the control entirely.
  */
+/**
+ * Say what the ladder cannot show by itself.
+ *
+ * Three rungs reading "30 days" look like three choices. They are three grades
+ * the interval cap truncated onto the same day, and nothing in the numbers says
+ * so or points at the setting that would change it. Likewise three equal rungs
+ * on a note reviewed today are FSRS reporting that it has no new difficulty
+ * information, which reads as a bug unless it is named.
+ *
+ * Returns undefined when the ladder is doing the whole job, which is the common
+ * case — a notice on every card would be noise.
+ */
+function ladderNotice(
+  plugin: IntelliScrollPlugin,
+  tiers: readonly Tier[]
+): string | undefined {
+  const anchors = tiers.filter(
+    (tier): tier is Tier & { rating: Rating } => tier.rating !== undefined
+  );
+  if (anchors.length === 0) return undefined;
+
+  const resolution = ladderResolution(
+    anchors.map((tier) => ({
+      rating: tier.rating,
+      due: tier.due,
+      intervalDays: tier.intervalDays,
+      modelDays: tier.modelDays,
+    })),
+    plugin.getEffectiveAlgorithm().fsrsTunables.maximumInterval
+  );
+
+  const parts: string[] = [];
+  if (resolution.capPinned.length > 1) {
+    parts.push(
+      t('tuning.notice.capped', {
+        grades: resolution.capPinned.map(ratingLabel).join('/'),
+      })
+    );
+  }
+  if (resolution.tied.length > 0) {
+    parts.push(
+      t('tuning.notice.tied', {
+        grades: resolution.tied.map(ratingLabel).join('/'),
+      })
+    );
+  }
+
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
+
 function retentionLimits(plugin: IntelliScrollPlugin): {
   min: number;
   max: number;
@@ -338,8 +388,10 @@ export function showRatingMenu(options: RatingMenuOptions): void {
   const anchor = anchorForEvent(event);
 
   let tiers: Tier[] = [];
+  let notice: string | undefined;
   try {
     tiers = tiersFor(plugin, path);
+    notice = ladderNotice(plugin, tiers);
   } catch (error) {
     // A ladder that cannot be built must not stop the ratings from being
     // offered; they simply appear without an interval, as for `off`.
@@ -404,6 +456,7 @@ export function showRatingMenu(options: RatingMenuOptions): void {
   openTierPopover({
     anchor: anchor.element,
     tiers,
+    notice,
     formatInterval: (tier) => formatTierInterval(tier, intervalUnit),
     labelTier: (tier) =>
       tier.rating !== undefined

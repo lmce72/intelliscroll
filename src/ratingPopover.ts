@@ -227,6 +227,12 @@ export interface TierPopoverOptions {
   ratings?: readonly TierPopoverRating[];
   /** Omit to hide the retention adjuster entirely. */
   retention?: TierPopoverRetention;
+  /**
+   * A sentence about what the ladder cannot show by itself — grades pinned onto
+   * the interval cap, or grades the model does not distinguish. Injected as
+   * finished wording so this module holds none.
+   */
+  notice?: string;
   title?: string;
   adjusterLabel?: string;
   decreaseLabel?: string;
@@ -280,6 +286,12 @@ export function openTierPopover(options: TierPopoverOptions): TierPopover {
   closeButton.setAttribute('aria-label', closeLabel);
   closeButton.setAttribute('title', closeLabel);
   options.renderIcon(closeButton, 'x');
+
+  // Above the ladder, because it explains what the ladder below cannot: three
+  // rungs reading the same number are not three equal choices.
+  if (options.notice) {
+    el.createDiv({ cls: 'intelliscroll-tier-notice', text: options.notice });
+  }
 
   const rowsEl = el.createDiv({ cls: 'intelliscroll-tier-rows' });
 

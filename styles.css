@@ -702,6 +702,16 @@
   flex-shrink: 0;
 }
 
+/* Explains what the ladder below cannot show by itself: rungs that read the
+   same because the interval cap truncated them or because the model does not
+   distinguish them, rather than because they are interchangeable choices. */
+.intelliscroll-tier-notice {
+  padding: var(--size-4-2) var(--size-4-2) 0;
+  font-size: var(--font-ui-smaller);
+  line-height: var(--line-height-tight);
+  color: var(--text-muted);
+}
+
 .intelliscroll-tier-rows {
   display: flex;
   flex-direction: column;

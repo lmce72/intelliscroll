@@ -311,3 +311,78 @@ export function retentionWindow(
   if (bestStart < 0) return null;
   return { min: samples[bestStart]!, max: samples[bestEnd]! };
 }
+
+/**
+ * What the displayed ladder is not telling the reader.
+ *
+ * Two ways a ladder can look like it offers more choice than it does, both of
+ * which the numbers alone do not explain:
+ *
+ * - **Pinned by the cap.** The interval cap is applied before nothing else, so
+ *   every grade whose stability times the modifier exceeds it lands on exactly
+ *   the cap. Three rungs then read the same number with no hint as to why, and
+ *   the fix — raise the cap — is not discoverable from the readout.
+ * - **Tied in the model.** FSRS recomputes elapsed time in whole days, so a
+ *   note reviewed earlier the same day has no new difficulty information: Hard,
+ *   Good and Easy keep one stability and the model genuinely has no opinion
+ *   distinguishing them. The equal numbers are honest; that they are *equal
+ *   because the model is silent* is not obvious.
+ *
+ * Deliberately data, not a sentence: the wording belongs to the i18n table.
+ */
+export interface LadderResolution {
+  /** Native grades sitting at the interval cap, so they schedule the same. */
+  capPinned: Rating[];
+  /** Native grades the model gives one interval, beyond the first of them. */
+  tied: Rating[];
+}
+
+/**
+ * Read a ladder for the two ways it can be less than it appears.
+ *
+ * Interpolated rungs are ignored throughout: they are not pressable, so a tie
+ * between them misleads nobody.
+ */
+export function ladderResolution(
+  steps: readonly LadderStep[],
+  maximumInterval: number
+): LadderResolution {
+  const cap =
+    Number.isFinite(maximumInterval) && maximumInterval > 0
+      ? maximumInterval
+      : Number.POSITIVE_INFINITY;
+
+  const capPinned: Rating[] = [];
+  let previous: number | null = null;
+
+  for (const step of steps) {
+    // A grade is pinned when the cap truncated it rather than the model
+    // choosing it, so equality with the cap is the test. `modelDays` arrives
+    // already clamped, and the tolerance covers the multiplication behind it.
+    if (Number.isFinite(cap) && step.modelDays >= cap - 1e-9) {
+      capPinned.push(step.rating);
+    }
+    previous = step.modelDays;
+  }
+
+  // Ties are reported only where the cap is not already the explanation. A
+  // capped ladder is necessarily a tied one — every pinned grade sits on the
+  // same value — so without this the panel says the same thing twice about the
+  // same grades, and the actionable sentence ("raise the cap") is the one worth
+  // reading.
+  const pinned = new Set(capPinned);
+  const tied: Rating[] = [];
+  previous = null;
+  for (const step of steps) {
+    if (
+      previous !== null &&
+      Math.abs(step.modelDays - previous) < 1e-9 &&
+      !pinned.has(step.rating)
+    ) {
+      tied.push(step.rating);
+    }
+    previous = step.modelDays;
+  }
+
+  return { capPinned, tied };
+}

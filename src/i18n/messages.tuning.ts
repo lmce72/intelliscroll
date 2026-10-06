@@ -30,6 +30,11 @@ export const messages: MessageModule = {
     // Shown only when the model's interval and the interval a press would
     // commit round differently, so neither number is passed off as the other.
     'tuning.interval.committed': '{model} (schedules {committed})',
+    // Shown above the ladder when the numbers alone would mislead.
+    'tuning.notice.capped':
+      '{grades} are pinned at the maximum interval, so they schedule the same. Raise the cap to separate them.',
+    'tuning.notice.tied':
+      'FSRS gives {grades} one interval: this note was reviewed too recently for the model to tell them apart.',
   },
   zh: {
     'tuning.tier.interpolated': '第 {tier} 档',
@@ -46,5 +51,9 @@ export const messages: MessageModule = {
     'tuning.interval.minute': '{value} 分钟',
     'tuning.interval.minutes': '{value} 分钟',
     'tuning.interval.committed': '{model}（实际提交 {committed}）',
+    'tuning.notice.capped':
+      '{grades} 被最大间隔上限压在同一天，排程结果相同。调高上限即可分开。',
+    'tuning.notice.tied':
+      'FSRS 给 {grades} 的是同一个间隔：这篇笔记复习得太近，模型无从区分它们。',
   },
 };
