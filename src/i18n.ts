@@ -12,6 +12,7 @@
  * translated independently.
  */
 
+import { messages as guideMessages } from './i18n/messages.guide.ts';
 import { messages as presetMessages } from './i18n/messages.presets.ts';
 import { messages as settingsMessages } from './i18n/messages.settings.ts';
 import { messages as tuningMessages } from './i18n/messages.tuning.ts';
@@ -40,6 +41,7 @@ const MODULES: readonly MessageModule[] = [
   presetMessages,
   viewMessages,
   tuningMessages,
+  guideMessages,
 ];
 
 const en: MessageTable = {};

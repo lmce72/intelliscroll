@@ -97,11 +97,24 @@ function deserializeCard(
 ): Card {
   const due = typeof raw.due === 'string' ? new Date(raw.due) : new Date(fallbackNow);
   const card: Record<string, unknown> = { ...raw, due };
+
+  // A `Date` is accepted as well as the ISO string `serializeCard` writes.
+  //
+  // Discarding anything that is not a string was worse than it looks: ts-fsrs
+  // derives elapsed time from `last_review`, so a dropped field silently means
+  // "never reviewed" — elapsed 0, retrievability 1, and a stability that does
+  // not grow. The card would keep scheduling as though it had just been seen,
+  // which is exactly the "the intervals are stuck" symptom, with nothing in the
+  // log to explain it. Anything else is still dropped, because a card that
+  // cannot say when it was last reviewed must not pretend to know.
   if (typeof raw.last_review === 'string') {
     card.last_review = new Date(raw.last_review);
+  } else if (raw.last_review instanceof Date) {
+    card.last_review = raw.last_review;
   } else {
     delete card.last_review;
   }
+
   return card as unknown as Card;
 }
 

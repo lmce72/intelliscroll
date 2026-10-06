@@ -37,6 +37,7 @@ import { ignoreIcon, ignoreLabel, isIgnored, paintRatingButton, showIgnoreMenu, 
 import { passesFileTypeRule } from './filtering';
 import { pickCardIndex } from './navigation';
 import { ShortcutsModal } from './help';
+import { openGuide } from './guideModal';
 import { t } from './i18n';
 import { recordView } from './history';
 import { removePathFromBatches } from './batches';
@@ -741,6 +742,17 @@ export class IntelliScrollView extends ItemView {
       const { setting } = this.plugin.app as unknown as AppWithSettings;
       setting.open();
       setting.openTabById('intelliscroll');
+    });
+
+    // Algorithm guide. Last in the row so it sits in the corner, and next to
+    // settings because both answer "how does this work" rather than "change
+    // what I am looking at" — the other four buttons all do the latter.
+    const guideBtn = controls.createEl('button');
+    guideBtn.className = 'intelliscroll-guide-btn';
+    guideBtn.setAttribute('aria-label', t('guide.action.open'));
+    setIcon(guideBtn, 'book-open');
+    guideBtn.addEventListener('click', () => {
+      openGuide(this.app);
     });
 
     // Body - scrollable container

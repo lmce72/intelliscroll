@@ -40,7 +40,8 @@
 .intelliscroll-tune-btn,
 .intelliscroll-filter-btn,
 .intelliscroll-save-preset-btn,
-.intelliscroll-settings-btn {
+.intelliscroll-settings-btn,
+.intelliscroll-guide-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -59,7 +60,8 @@
 .intelliscroll-tune-btn:hover,
 .intelliscroll-filter-btn:hover,
 .intelliscroll-save-preset-btn:hover:not(:disabled),
-.intelliscroll-settings-btn:hover {
+.intelliscroll-settings-btn:hover,
+.intelliscroll-guide-btn:hover {
   background-color: var(--background-modifier-hover);
 }
 
@@ -816,4 +818,141 @@ button.intelliscroll-tier-row:hover {
 .intelliscroll-note-float-choice.is-selected {
   background: var(--background-modifier-hover);
   box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/* ─── Algorithm guide ──────────────────────────────────────────────────────
+   A long-form reference, so it is typeset as one: a readable measure, real
+   tables and preformatted blocks, and callouts that stand apart from the
+   prose. Every colour and size comes from an Obsidian variable so it follows
+   the user's theme rather than fighting it. */
+
+.intelliscroll-guide-modal {
+  width: min(52rem, 92vw);
+  max-width: min(52rem, 92vw);
+}
+
+.intelliscroll-guide {
+  line-height: var(--line-height-normal);
+}
+
+.intelliscroll-guide-header {
+  padding-bottom: var(--size-4-3);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.intelliscroll-guide-h1 {
+  margin: 0 0 var(--size-4-1);
+  font-size: var(--font-ui-large);
+}
+
+.intelliscroll-guide-subtitle {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.intelliscroll-guide-body {
+  /* Room to scroll inside the modal rather than growing past the viewport. */
+  max-height: 65vh;
+  overflow-y: auto;
+  padding-right: var(--size-4-2);
+}
+
+.intelliscroll-guide-section {
+  margin-top: var(--size-4-6);
+}
+
+.intelliscroll-guide-h2 {
+  margin: 0 0 var(--size-4-3);
+  padding-bottom: var(--size-4-1);
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: var(--font-ui-medium);
+}
+
+.intelliscroll-guide-h3 {
+  margin: var(--size-4-4) 0 var(--size-4-2);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+  color: var(--text-accent);
+}
+
+.intelliscroll-guide-body p {
+  margin: 0 0 var(--size-4-3);
+}
+
+.intelliscroll-guide-body ul,
+.intelliscroll-guide-body ol {
+  margin: 0 0 var(--size-4-3);
+  padding-left: var(--size-4-5);
+}
+
+.intelliscroll-guide-body li {
+  margin-bottom: var(--size-4-1);
+}
+
+.intelliscroll-guide-code {
+  margin: 0 0 var(--size-4-3);
+  padding: var(--size-4-3);
+  border-radius: var(--radius-s);
+  background-color: var(--code-background);
+  overflow-x: auto;
+  font-size: var(--font-smaller);
+  line-height: var(--line-height-tight);
+}
+
+.intelliscroll-guide-code code {
+  background: none;
+  padding: 0;
+  white-space: pre;
+}
+
+.intelliscroll-guide-table {
+  width: 100%;
+  margin: 0 0 var(--size-4-3);
+  border-collapse: collapse;
+  font-size: var(--font-ui-smaller);
+}
+
+.intelliscroll-guide-table th,
+.intelliscroll-guide-table td {
+  padding: var(--size-4-1) var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.intelliscroll-guide-table th {
+  background-color: var(--background-secondary);
+  font-weight: var(--font-semibold);
+}
+
+/* A callout: the sentence worth keeping if nothing else is. Left rule rather
+   than a background, so it reads as emphasis and not as a code block. */
+.intelliscroll-guide-note {
+  margin: 0 0 var(--size-4-3);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-left: 3px solid var(--text-accent);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  background-color: var(--background-secondary);
+}
+
+.intelliscroll-guide-example {
+  margin: 0 0 var(--size-4-4);
+  padding: var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+
+.intelliscroll-guide-example-title {
+  margin-bottom: var(--size-4-2);
+  font-weight: var(--font-semibold);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.intelliscroll-guide-footer {
+  margin-top: var(--size-4-4);
+  padding-top: var(--size-4-2);
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
 }
