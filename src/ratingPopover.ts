@@ -109,8 +109,16 @@ export function retentionRampSteps(step: number): number[] {
 const RAMP_DELAY_MS = 400;
 /** ms between repeats once accelerating. */
 const REPEAT_MS = 50;
-/** How often the press is ticked; also its redraw cadence. */
-const TICK_MS = 50;
+/**
+ * How often the press is ticked; also its redraw cadence.
+ *
+ * Deliberately faster than `REPEAT_MS`. Ticking at exactly the repeat interval
+ * means every tick is a photo finish against the gate — one arriving a
+ * millisecond early contributes nothing, and a main thread busy enough to
+ * coalesce two timers skips a whole window. Sampling several times per window
+ * makes the ramp's rate depend on elapsed time rather than on frame luck.
+ */
+const TICK_MS = 16;
 
 /** Movement past this many pixels means the press was a scroll, not a tap. */
 const TAP_MOVE_TOLERANCE_PX = 10;

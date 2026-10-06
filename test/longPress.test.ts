@@ -256,3 +256,84 @@ test('direction is not applied here: amounts are positive either way', () => {
     'a tap is positive with direction -1 as well'
   );
 });
+
+// ─── No window is dropped ──────────────────────────────────────────────────
+
+/** Steps emitted while ticking at the given timestamps, from one press. */
+function emittedOver(timestamps: readonly number[]): number {
+  const press = createLongPress(CONFIG);
+  press.down(0);
+  let emitted = 0;
+  for (const at of timestamps) if (press.tick(at) !== null) emitted += 1;
+  return emitted;
+}
+
+test('steps emitted follows elapsed time, whatever the tick timing', () => {
+  // The bug this pins. The controller used to reschedule from the tick's
+  // arrival time and drop whatever it was short by, so a tick landing a
+  // millisecond early wasted its window and a coalesced timer wrote off every
+  // window but one. Held on a busy main thread that reads as the ramp losing
+  // count: it fires, and the value moves by less than the time held justifies,
+  // differently on each press.
+  //
+  // The invariant is that the count follows *elapsed time*, so three very
+  // different tick streams over the same span must agree. One step is the
+  // ramp's own, emitted when the hold crosses the threshold; every window
+  // after that owes exactly one more.
+  const FROM = CONFIG.rampDelayMs;
+  const TO = 3_000;
+  const windows = Math.floor((TO - FROM) / CONFIG.repeatMs);
+  const expected = 1 + windows;
+
+  const exact: number[] = [];
+  const jitter: number[] = [];
+  const stalled: number[] = [];
+  for (let t = FROM; t <= TO; t += CONFIG.repeatMs) {
+    exact.push(t);
+    jitter.push(t - 1);
+  }
+  // Frame-rate sampling with one 400ms freeze, which is what a coalesced
+  // timer looks like.
+  for (let t = FROM; t <= TO; t += 16) {
+    if (t < 1_500 || t > 1_900) stalled.push(t);
+  }
+  // Every stream ends on the same instant. Without this the comparison is
+  // between different spans, and a stream that stops 1ms earlier legitimately
+  // owes one window fewer.
+  jitter.push(TO);
+  stalled.push(TO);
+
+  assert.equal(emittedOver(exact), expected, 'exact cadence');
+  assert.equal(emittedOver(jitter), expected, 'every tick a millisecond early');
+  assert.equal(emittedOver(stalled), expected, 'with a 400ms freeze');
+});
+
+test('a stalled tick drains its backlog over following calls, not in one', () => {
+  // The pacing half of the same rule. A freeze owes several windows; they must
+  // arrive, but one per call, so the value cannot jump on the repaint that
+  // follows the stall.
+  const press = createLongPress(CONFIG);
+  press.down(0);
+  press.tick(CONFIG.rampDelayMs); // the ramp's own step
+
+  // 400ms later: four windows owed, one emitted here.
+  assert.notEqual(press.tick(CONFIG.rampDelayMs + 400), null);
+
+  // Three more drain on the next three calls, and then nothing is owed.
+  let drained = 0;
+  for (let i = 1; i <= 6; i++) {
+    if (press.tick(CONFIG.rampDelayMs + 400 + i) !== null) drained += 1;
+  }
+  assert.equal(drained, 3, `three windows remained, got ${drained}`);
+});
+
+test('a tap is unaffected by the catch-up rule', () => {
+  const tapped = createLongPress(CONFIG);
+  tapped.down(0);
+  assert.equal(tapped.up(120), CONFIG.steps[0], 'a tap is one base step');
+
+  const held = createLongPress(CONFIG);
+  held.down(0);
+  held.tick(CONFIG.rampDelayMs);
+  assert.equal(held.up(700), 0, 'repeats stand in for the tap');
+});

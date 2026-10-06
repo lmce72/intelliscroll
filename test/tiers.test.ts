@@ -25,26 +25,47 @@ function assertClose(actual: number, expected: number, tolerance = 1e-6): void {
   );
 }
 
-/** Synthetic steps from bare intervals, rated in ascending order. */
-function stepsFromIntervals(intervals: readonly number[]): LadderStep[] {
+/**
+ * Synthetic steps from bare intervals, rated in ascending order.
+ *
+ * `modelDays` mirrors `intervalDays` unless the caller overrides it: these
+ * fixtures describe ladders whose committed and model intervals agree, which
+ * is the case for SM-2 and Leitner and for FSRS once its grades have diverged.
+ */
+function stepsFromIntervals(
+  intervals: readonly number[],
+  modelDays?: readonly number[]
+): LadderStep[] {
   const ratings = ['again', 'hard', 'good', 'easy'] as const;
   return intervals.map((intervalDays, index) => ({
     rating: ratings[index % ratings.length]!,
     due: NOW + intervalDays * DAY_MS,
     intervalDays,
+    modelDays: modelDays?.[index] ?? intervalDays,
   }));
 }
 
 // ─── expandTiers ───────────────────────────────────────────────────────────
 
-test('FSRS four grades expand into eight tiers with the widest gap most subdivided', () => {
+test('rungs are spaced by the model interval, not by the rounded one', () => {
+  // The committed ladder is whole days that FSRS has already forced apart, so
+  // spacing the rungs by it would build the display on the artefact. Widths
+  // come from `modelDays`, which is why the allocation is not the one the
+  // committed gaps alone would produce: here again->hard is the widest gap on
+  // the model scale, so it takes two of the four extra rungs.
   const ladder = fsrsLadder();
   assert.deepEqual(
     ladder.map((step) => step.intervalDays),
     [1, 2, 3, 8],
-    'the native ladder is the four grades whose gaps this test reasons about'
+    'the committed ladder this test reasons against'
   );
 
+  const [a, h, g, e] = ladder.map((step) => step.modelDays) as [
+    number,
+    number,
+    number,
+    number,
+  ];
   const tiers = expandTiers(ladder, 8);
 
   assert.equal(tiers.length, 8);
@@ -53,22 +74,53 @@ test('FSRS four grades expand into eight tiers with the widest gap most subdivid
     [1, 2, 3, 4, 5, 6, 7, 8],
     'tiers are numbered 1-based and ascending'
   );
-
-  // 4 extra tiers over 3 log-widths: 1 into 1->2, 1 into 2->3, and 2 into the
-  // widest gap 3->8. Each gap is subdivided geometrically, so the interior
-  // points are lo * (hi/lo)^(j/(extra+1)).
-  const expected = [
-    1,
-    Math.SQRT2, // 1 * (2/1)^(1/2)
-    2,
-    2 * Math.sqrt(1.5), // 2 * (3/2)^(1/2)
-    3,
-    3 * Math.cbrt(8 / 3), // 3 * (8/3)^(1/3)
-    3 * Math.cbrt(8 / 3) ** 2, // 3 * (8/3)^(2/3)
+  assert.equal(
+    new Set(tiers.map((tier) => tier.modelDays.toFixed(6))).size,
     8,
+    'eight rungs on the model scale, none a duplicate of another'
+  );
+
+  // Each gap is subdivided geometrically, so an interior point is
+  // lo * (hi/lo)^(j/(extra+1)) with `extra` rungs inserted.
+  const expected = [
+    a,
+    a * Math.cbrt(h / a),
+    a * Math.cbrt(h / a) ** 2,
+    h,
+    h * Math.sqrt(g / h),
+    g,
+    g * Math.sqrt(e / g),
+    e,
   ];
   tiers.forEach((tier, index) =>
-    assertClose(tier.intervalDays, expected[index]!, 1e-9)
+    assertClose(tier.modelDays, expected[index]!, 1e-9)
+  );
+});
+
+test('a ladder whose grades share one model interval says so instead of inventing a spread', () => {
+  // The case the user hit: a note reviewed earlier the same day, where FSRS's
+  // recall growth term is zero and Hard, Good and Easy all keep the card's
+  // stability. The committed values are 1/2/3/4 because of ts-fsrs's ordering
+  // rule; the model's values are all the same.
+  //
+  // The ladder must not convert that into four distinct rungs. Showing the
+  // model value is the whole point: three rungs that read the same tell the
+  // reader the truth, which is that this note's grades do not differ today.
+  const ladder = stepsFromIntervals([1, 2, 3, 4], [0.523, 2.307, 2.307, 2.307]);
+  const tiers = expandTiers(ladder, 8);
+  const model = tiers.map((tier) => Number(tier.modelDays.toFixed(4)));
+
+  assert.equal(tiers.length, 8, 'still eight rungs');
+  for (let i = 1; i < model.length; i++) {
+    assert.ok(
+      model[i]! >= model[i - 1]!,
+      `never descends: ${JSON.stringify(model)}`
+    );
+  }
+  assert.equal(
+    model[model.length - 1],
+    model[model.length - 2],
+    'the top rungs are honestly identical rather than artificially ordered'
   );
 });
 

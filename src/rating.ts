@@ -109,7 +109,14 @@ const SINGULAR_UNIT_KEY: Record<IntervalUnit, string> = {
  * `describeInterval` is what keeps a sub-unit value from rendering as "0".
  */
 export function formatTierInterval(tier: Tier, unit: IntervalUnit): string {
-  const display = describeReadableInterval(tier.intervalDays, unit);
+  // The model's interval, not the committed one. FSRS rounds the committed
+  // value to whole days and then forces each grade a day past the last, so for
+  // a note reviewed earlier the same day the committed rungs read 1/2/3/4
+  // while the model has no opinion distinguishing them at all. Showing the
+  // model's value is what lets the retention control visibly do something —
+  // and what makes three identical rungs read as identical, which is the truth
+  // about that note rather than a fabricated staircase.
+  const display = describeReadableInterval(tier.modelDays, unit);
   const singular = display.decimals === 0 && display.value === 1;
   const key = singular ? SINGULAR_UNIT_KEY[display.unit] : display.unit;
   return t(`tuning.interval.${key}`, {

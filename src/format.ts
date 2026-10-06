@@ -53,17 +53,20 @@ function roundTo(value: number, decimals: number): number {
 }
 
 /**
- * Digits to show for a converted amount, chosen from its magnitude.
+ * Digits to show for a converted amount.
  *
- * A whole amount shows none (a note returning in "3 days" must not read
- * "3.0 days"); a fractional amount below ten shows one, because the gap
- * between 1.5 and 1.8 days is worth seeing; anything at or above ten rounds to
- * a whole number, where a decimal is noise. The rule is applied to the raw
- * converted amount, before rounding.
+ * A whole amount shows none, so a note returning in "3 days" never reads
+ * "3.0 days". A fractional one always shows one — including above ten, which
+ * is where this used to drop to none.
+ *
+ * That magnitude rule was worse than noise reduction: it merged rungs. A
+ * ladder whose anchors are 10, 11, 12, 13 days produces interpolated rungs at
+ * 10.4, 11.5 and so on, and at zero decimals those render as 10, 10, 11, 11,
+ * 11, 12, 12, 13 — four distinct values pretending to be eight. A decimal is
+ * cheap; a rung that silently equals its neighbour is not.
  */
 function baseDecimals(amount: number): number {
-  if (Number.isInteger(amount)) return 0;
-  return amount < 10 ? 1 : 0;
+  return Number.isInteger(amount) ? 0 : 1;
 }
 
 /**

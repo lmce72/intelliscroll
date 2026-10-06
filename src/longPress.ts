@@ -115,15 +115,35 @@ export function createLongPress(
       if (!accelerated) {
         accelerated = true;
         stepIndex = 0;
-        lastEmitAt = now;
+        // The repeat grid starts when the ramp does, not at whatever instant
+        // the first qualifying tick happened to arrive, so the cadence does not
+        // inherit the caller's frame timing.
+        lastEmitAt = start + rampDelayMs;
         return steps[0]!;
       }
 
-      // One step per call, however many repeatMs windows have slipped past: a
-      // sparse tick stream (a stalled frame) must not dump a burst of steps
-      // into a single repaint.
+      // A window that has already passed is owed, not discarded.
+      //
+      // This used to reschedule from the arrival time and drop whatever the
+      // tick was short by, which loses steps two ways. A tick landing a
+      // millisecond early wastes its whole window; and the caller ticks from a
+      // timer, so a busy main thread coalesces several of them into one — a
+      // 200 ms stall is four windows and, under the old rule, exactly one
+      // emitted step, with the other three gone. That reads as the ramp
+      // "losing count": it fires, but the value moves by far less than the time
+      // held justifies, and by a different amount each press.
+      //
+      // Advancing the grid by whole windows keeps the rest pending, so nothing
+      // is lost. Still at most one step per call, so a stall cannot dump a
+      // burst into a single repaint: the backlog drains over the following
+      // ticks, which arrive faster than the windows do.
+      // Advance the grid by exactly one window, not by everything that has
+      // elapsed. Consuming the whole gap here is the tempting version and it
+      // still loses: it emits one step and writes off the other three, which is
+      // the same defect with more arithmetic. One window per step means the
+      // remainder stays owed and drains on later ticks.
       if (now - lastEmitAt < repeatMs) return null;
-      lastEmitAt = now;
+      lastEmitAt += repeatMs;
       if (stepIndex < steps.length - 1) stepIndex += 1;
       return steps[stepIndex]!;
     },

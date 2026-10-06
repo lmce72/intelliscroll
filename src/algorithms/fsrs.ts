@@ -1,5 +1,7 @@
 import {
+  computeDecayFactor,
   createEmptyCard,
+  FSRS6_DEFAULT_DECAY,
   fsrs,
   generatorParameters,
   Rating as FsrsRating,
@@ -111,6 +113,21 @@ function cardFor(previous: NoteSrsState | null, now: number): Card {
     : createEmptyCard(new Date(now));
 }
 
+/**
+ * The factor FSRS scales a card's stability by to hit a requested retention.
+ *
+ * ts-fsrs holds this on the algorithm object but marks it `protected`, so it is
+ * recomputed from the two pieces the library does export. The formula is the
+ * library's own — `computeDecayFactor` supplies FSRS-6's decay and the factor
+ * that goes with it — and a test pins the result against `next_interval`, so an
+ * upstream change breaks a test rather than silently shifting every interval
+ * this plugin displays.
+ */
+function intervalModifierFor(requestRetention: number): number {
+  const { decay, factor } = computeDecayFactor(FSRS6_DEFAULT_DECAY);
+  return (Math.pow(requestRetention, 1 / decay) - 1) / factor;
+}
+
 export const fsrsAlgorithm: SchedulerAlgorithm = {
   id: 'fsrs',
   label: 'FSRS-6',
@@ -135,15 +152,28 @@ export const fsrsAlgorithm: SchedulerAlgorithm = {
   },
   ladder(previous, ctx) {
     const now = ctx.now;
+    const scheduler = schedulerFor(ctx.fsrs);
     // `repeat()` is what `next()` itself calls, so every step here is by
     // construction the same value a press would commit.
-    const outcomes = schedulerFor(ctx.fsrs).repeat(cardFor(previous, now), new Date(now));
+    const outcomes = scheduler.repeat(cardFor(previous, now), new Date(now));
+
+    // What the model computed, before ts-fsrs rounds it and pushes each grade
+    // past the previous one. The cap applies; the one-day floor and the
+    // rounding do not, because those two are what hide the retention control's
+    // effect — sweeping it moves the model's value by a factor of ten while
+    // every rounded value stays put.
+    const modifier = intervalModifierFor(ctx.fsrs.requestRetention);
 
     return ladderFrom(
       RATING_ORDER,
       (rating) =>
         (outcomes[RATING_MAP[rating]].card.due.getTime() - now) / DAY_MS,
-      now
+      now,
+      (rating) =>
+        Math.min(
+          outcomes[RATING_MAP[rating]].card.stability * modifier,
+          ctx.fsrs.maximumInterval
+        )
     );
   },
 };

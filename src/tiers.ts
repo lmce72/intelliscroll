@@ -13,8 +13,14 @@ export interface Tier {
   tier: number;
   /** Epoch ms this tier would schedule. */
   due: number;
-  /** Interval in days. Fractional. */
+  /** Interval in days: what this tier's grade would actually commit. */
   intervalDays: number;
+  /**
+   * The interval the model computed for this tier, before the scheduler
+   * rounded it to whole days. What the display should show — see the note on
+   * `LadderStep.modelDays` for why the two differ and why it matters.
+   */
+  modelDays: number;
   /** The algorithm's own grade, present only when `anchor` is true. */
   rating?: Rating;
   anchor: boolean;
@@ -43,6 +49,7 @@ function anchorTier(tier: number, step: LadderStep): Tier {
     tier,
     due: step.due,
     intervalDays: step.intervalDays,
+    modelDays: step.modelDays,
     rating: step.rating,
     anchor: true,
   };
@@ -132,9 +139,13 @@ export function expandTiers(steps: readonly LadderStep[], count: number): Tier[]
   // to go; it is returned alone rather than duplicated.
   if (gapCount === 0) return anchorsOnly(steps);
 
+  // Widths come from the model's intervals, not the committed ones: the
+  // committed values are whole days that ts-fsrs has already forced apart, so
+  // spacing the rungs by them would build the ladder on the artefact rather
+  // than on the thing it is meant to show.
   const widths = Array.from({ length: gapCount }, (_, i) => {
-    const a = clampInterval(steps[i]!.intervalDays);
-    const b = clampInterval(steps[i + 1]!.intervalDays);
+    const a = clampInterval(steps[i]!.modelDays);
+    const b = clampInterval(steps[i + 1]!.modelDays);
     return Math.log(b) - Math.log(a);
   });
   const allocation = allocate(target - steps.length, widths);
@@ -153,11 +164,21 @@ export function expandTiers(steps: readonly LadderStep[], count: number): Tier[]
     // because these are intervals: linear steps would pile every tier into the
     // last few days of a long gap.
     const ratio = hi / lo;
+    const loModel = clampInterval(a.modelDays);
+    const hiModel = clampInterval(b.modelDays);
+    const modelRatio = hiModel / loModel;
     let intervalDays = a.intervalDays;
 
     for (let j = 1; j <= extra; j++) {
       intervalDays =
         ratio === 1 ? a.intervalDays : lo * Math.pow(ratio, j / (extra + 1));
+      // The model value is interpolated in its own right rather than rescaled
+      // from `intervalDays`, so the rungs are evenly spaced on the scale the
+      // display actually shows.
+      const modelDays =
+        modelRatio === 1
+          ? a.modelDays
+          : loModel * Math.pow(modelRatio, j / (extra + 1));
       tiers.push({
         tier: tiers.length + 1,
         // Recover the same origin the anchors were built from, so `due - now`
@@ -166,6 +187,7 @@ export function expandTiers(steps: readonly LadderStep[], count: number): Tier[]
         // construction, so shifting from the anchor's own due is equivalent.
         due: a.due + (intervalDays - a.intervalDays) * DAY_MS,
         intervalDays,
+        modelDays,
         anchor: false,
       });
     }

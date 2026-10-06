@@ -44,8 +44,26 @@ export interface LadderStep {
   rating: Rating;
   /** Epoch ms the note would next be due. */
   due: number;
-  /** `due - ctx.now` in days. Fractional; callers round for display. */
+  /** `due - ctx.now` in days: what a press actually schedules. */
   intervalDays: number;
+  /**
+   * The interval the model computed, before ts-fsrs rounds it to whole days
+   * and pushes it along its ordering staircase.
+   *
+   * These diverge, and the gap is the point. FSRS computes a fractional
+   * interval from the card's stability, then rounds it and forces each grade
+   * at least a day past the previous one — so for a card reviewed earlier the
+   * same day, the model has genuinely different intentions per grade (say
+   * 2.3 / 2.3 / 2.3 days) while the committed values are 2 / 3 / 4. Showing
+   * only the committed number makes the retention control look broken, because
+   * sweeping it changes the model's value by a factor of ten while every
+   * rounded value stays put.
+   *
+   * The cap is applied (it is a real bound the user set) but neither the
+   * one-day floor nor the rounding is, so a sub-day intention stays visible.
+   * Callers that must not mislead should show this *and* say what commits.
+   */
+  modelDays: number;
 }
 
 export interface SchedulerAlgorithm {
@@ -136,12 +154,20 @@ export function makeState(params: {
 export function ladderFrom(
   ratings: readonly Rating[],
   intervalDaysFor: (rating: Rating) => number,
-  now: number
+  now: number,
+  modelDaysFor?: (rating: Rating) => number
 ): LadderStep[] {
   return ratings
     .map((rating) => {
       const intervalDays = intervalDaysFor(rating);
-      return { rating, due: now + intervalDays * DAY_MS, intervalDays };
+      return {
+        rating,
+        due: now + intervalDays * DAY_MS,
+        intervalDays,
+        // Algorithms that schedule in whole days already have nothing to
+        // round, so the two coincide unless one says otherwise.
+        modelDays: modelDaysFor ? modelDaysFor(rating) : intervalDays,
+      };
     })
     .sort((a, b) => a.intervalDays - b.intervalDays);
 }

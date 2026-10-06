@@ -57,9 +57,23 @@ test('fractional amounts below ten keep one decimal', () => {
   });
 });
 
-test('amounts at or above ten round to a whole number', () => {
+test('a fractional amount keeps its decimal however large it is', () => {
+  // This used to drop to no decimals at or above ten, which merged rungs: a
+  // ladder of 10, 11, 12, 13 days with interpolated rungs at 10.4 and 11.5
+  // rendered as 10, 10, 11, 11, 11, 12, 12, 13 — eight rungs showing four
+  // values. A whole amount still shows none.
   assert.deepEqual(describeInterval(10.4, 'days'), {
-    value: 10,
+    value: 10.4,
+    unit: 'days',
+    decimals: 1,
+  });
+  assert.deepEqual(describeInterval(365.5, 'days'), {
+    value: 365.5,
+    unit: 'days',
+    decimals: 1,
+  });
+  assert.deepEqual(describeInterval(11, 'days'), {
+    value: 11,
     unit: 'days',
     decimals: 0,
   });

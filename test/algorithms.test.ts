@@ -378,3 +378,73 @@ test('learning steps are off unless a preset asks for them', () => {
     'the default ladder never reaches below a day'
   );
 });
+
+// ─── The model interval ────────────────────────────────────────────────────
+
+test('the model interval is the library\'s own arithmetic, not a second guess', () => {
+  // `intervalModifierFor` recomputes a factor ts-fsrs marks `protected`, so it
+  // has to be pinned against the library rather than trusted. The easy grade is
+  // the pin: FSRS forces each grade at least a day past the previous one, so
+  // wherever `easy` is not merely `good + 1` its committed value is the
+  // library's own rounding of stability times the modifier — and rounding the
+  // model interval must therefore reproduce it.
+  const algorithm = getAlgorithm('fsrs');
+  const fsrs: FsrsTunables = {
+    ...FSRS_DEFAULT_TUNABLES,
+    enableFuzz: false,
+    maximumInterval: 3650,
+  };
+
+  let state: NoteSrsState | null = null;
+  let now = NOW;
+  let checked = 0;
+
+  for (let i = 0; i < 10; i++) {
+    const ladder = algorithm.ladder(state, context({ now, fsrs }));
+    const easy = ladder.find((step) => step.rating === 'easy')!;
+    const good = ladder.find((step) => step.rating === 'good')!;
+
+    if (Math.round(easy.intervalDays) > Math.round(good.intervalDays) + 1) {
+      assert.equal(
+        Math.min(Math.max(1, Math.round(easy.modelDays)), fsrs.maximumInterval),
+        Math.round(easy.intervalDays),
+        `pass ${i}: model ${easy.modelDays} must round to the committed ${easy.intervalDays}`
+      );
+      checked += 1;
+    }
+
+    state = algorithm.review(state, 'good', context({ now, fsrs }));
+    now = state.due;
+  }
+
+  assert.ok(checked >= 5, `the pin must actually run: only ${checked} passes checked`);
+});
+
+test('a note reviewed earlier the same day reports one model interval for three grades', () => {
+  // The case that made the retention control look broken. FSRS recomputes
+  // elapsed days from the last review and floors it to whole days, so a review
+  // an hour ago is zero elapsed: retrievability is 1, the recall growth term
+  // exp((1-R)*w10) - 1 is 0, and Hard, Good and Easy all keep the card's
+  // stability unchanged. The committed values are still 1/2/3/4, because
+  // ts-fsrs's ordering rule forces them apart — which is exactly why the
+  // display shows the model's value instead.
+  const algorithm = getAlgorithm('fsrs');
+  const fsrs: FsrsTunables = { ...FSRS_DEFAULT_TUNABLES, enableFuzz: false };
+  const state = algorithm.review(null, 'good', context({ now: NOW, fsrs }));
+
+  // Read the ladder back an hour later — still the same UTC calendar day.
+  const ladder = algorithm.ladder(state, context({ now: NOW + 3_600_000, fsrs }));
+  const byRating = new Map(ladder.map((step) => [step.rating, step]));
+
+  const hard = byRating.get('hard')!;
+  const good = byRating.get('good')!;
+  const easy = byRating.get('easy')!;
+
+  assert.equal(hard.modelDays, good.modelDays, 'hard and good: one model value');
+  assert.equal(good.modelDays, easy.modelDays, 'good and easy: one model value');
+
+  assert.ok(
+    Math.round(easy.intervalDays) > Math.round(hard.intervalDays),
+    'while the committed values are pushed apart by the ordering rule'
+  );
+});
