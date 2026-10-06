@@ -35,6 +35,35 @@ export interface PopoverPosition {
   placement: 'above' | 'below';
 }
 
+/** Class on the note's floating control, which the menu must not cover. */
+const NOTE_FLOAT_CLASS = 'intelliscroll-note-float';
+
+/**
+ * Space at the bottom of the viewport to keep clear of the note's floating
+ * control, or 0 when the anchor has nothing to do with it.
+ *
+ * The region reserved is everything below the control's *top* edge, not merely
+ * the control's height. The anchor is a button inside the control, so placing
+ * the menu above the anchor still lands it inside the control's own box — its
+ * padding, border and shadow are all below that button's top. Reserving from
+ * the top edge is what makes "above the anchor" and "above the control" the
+ * same thing.
+ *
+ * Read live rather than passed in: the control is one row until the note has
+ * been read and two after, and it grows upward from a fixed bottom edge, so it
+ * can expand into a menu that was positioned to clear the shorter version.
+ */
+function floatingReserve(anchor: HTMLElement): number {
+  const float = anchor.closest?.(`.${NOTE_FLOAT_CLASS}`);
+  if (!float) return 0;
+
+  const win = float.ownerDocument?.defaultView;
+  const rect = float.getBoundingClientRect();
+  if (!win || !Number.isFinite(rect.top)) return 0;
+
+  return Math.max(0, win.innerHeight - rect.top + POPOVER_GAP);
+}
+
 /** Space left between the anchor and the popover. */
 export const POPOVER_GAP = 6;
 /** Space the popover keeps from the viewport edge. */
@@ -47,26 +76,43 @@ export const POPOVER_MARGIN = 8;
  * Pure so the flip/clamp arithmetic is testable without a DOM. Coordinates are
  * viewport-relative, which is what works inside Obsidian's scrollable panes:
  * the popover is positioned `fixed` and re-placed on every scroll.
+ *
+ * `reserveBottom` is space at the bottom of the viewport the popover must stay
+ * out of, for something that floats above it and is not part of the anchor. The
+ * note's floating control is the case: opening the rating menu from it puts the
+ * anchor near the bottom of the screen, where nothing fits below, so the popover
+ * clamps to the lowest position it can take — which is precisely on top of the
+ * control it was opened from. Without this the menu covers its own button.
  */
 export function computePopoverPosition(
   anchor: PopoverRect,
   popover: PopoverSize,
   viewport: PopoverSize,
-  options?: { gap?: number; margin?: number }
+  options?: { gap?: number; margin?: number; reserveBottom?: number }
 ): PopoverPosition {
   const gap = options?.gap ?? POPOVER_GAP;
   const margin = options?.margin ?? POPOVER_MARGIN;
+  const reserve =
+    Number.isFinite(options?.reserveBottom) && (options?.reserveBottom ?? 0) > 0
+      ? (options?.reserveBottom as number)
+      : 0;
+
+  // The floor the popover may not sink below. Reservations that would leave no
+  // room at all are ignored rather than inverted, so a very tall floating
+  // control cannot push the menu off the top of the screen.
+  const floor = viewport.height - margin - reserve;
+  const usableHeight = Math.max(margin, floor);
 
   const below = anchor.top + anchor.height + gap;
   const above = anchor.top - gap - popover.height;
-  const fitsBelow = below + popover.height <= viewport.height - margin;
+  const fitsBelow = below + popover.height <= floor;
   const fitsAbove = above >= margin;
   // Below is the default; flip only when below does not fit and above does.
   const placement: PopoverPosition['placement'] =
     !fitsBelow && fitsAbove ? 'above' : 'below';
 
   const desiredTop = placement === 'below' ? below : above;
-  const maxTop = Math.max(margin, viewport.height - popover.height - margin);
+  const maxTop = Math.max(margin, usableHeight - popover.height);
   const top = Math.min(Math.max(desiredTop, margin), maxTop);
 
   // Centre on the anchor, then keep both edges inside the viewport.
@@ -470,7 +516,11 @@ export function openTierPopover(options: TierPopoverOptions): TierPopover {
         height: anchorRect.height,
       },
       { width: popoverRect.width, height: popoverRect.height },
-      { width: win.innerWidth, height: win.innerHeight }
+      { width: win.innerWidth, height: win.innerHeight },
+      // Measured each time rather than passed in: the control grows from one
+      // row to two when it offers the ratings, and a height captured at open
+      // would leave the menu overlapping whatever it grew into.
+      { reserveBottom: floatingReserve(options.anchor) }
     );
     el.style.top = `${position.top}px`;
     el.style.left = `${position.left}px`;

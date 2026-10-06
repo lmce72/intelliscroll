@@ -123,3 +123,89 @@ test('a click with no tracked press is accepted', () => {
   const event = { view: null, timeStamp: 0 } as unknown as MouseEvent;
   assert.equal(isTapGesture(event), true);
 });
+
+// ─── Keeping clear of the note's floating control ──────────────────────────
+
+/** Viewport from a phone in portrait, and a menu opened from the float. */
+const PHONE = { width: 400, height: 800 };
+const MENU = { width: 240, height: 420 };
+/** The float's button: near the bottom-left corner, as mobile shows it. */
+const FLOAT_BUTTON = { top: 740, left: 16, width: 32, height: 32 };
+
+/** What `floatingReserve` produces for a control at `floatTop`. */
+const reserveFor = (floatTop: number): number => PHONE.height - floatTop + 6;
+
+test('a menu opened from the floating control clears the whole control', () => {
+  // The regression this pins. Reserving only the control's *height* is not
+  // enough: the anchor is a button inside it, so "above the anchor" still lands
+  // inside the control's own box, and on mobile that box is the bottom-left
+  // corner where the menu is unreadable.
+  const floatTop = 724;
+  const placed = computePopoverPosition(FLOAT_BUTTON, MENU, PHONE, {
+    reserveBottom: reserveFor(floatTop),
+  });
+
+  assert.ok(
+    placed.top + MENU.height <= floatTop,
+    `menu ends at ${placed.top + MENU.height}, must end at or above the control's top (${floatTop})`
+  );
+});
+
+test('without the reserve the menu sinks onto the control', () => {
+  // What it looked like before: no reservation, so the menu takes the lowest
+  // position the viewport allows and covers the button it came from.
+  const placed = computePopoverPosition(FLOAT_BUTTON, MENU, PHONE);
+  assert.ok(
+    placed.top + MENU.height > 724,
+    'unreserved, the menu reaches into the control'
+  );
+});
+
+test('a taller control reserves more, because it grows upward', () => {
+  // One row until the note has been read, two after. It grows from a fixed
+  // bottom edge, so the top moves up and a height captured earlier would leave
+  // the menu overlapping the row that appeared.
+  const oneRow = computePopoverPosition(FLOAT_BUTTON, MENU, PHONE, {
+    reserveBottom: reserveFor(740),
+  });
+  const twoRows = computePopoverPosition(FLOAT_BUTTON, MENU, PHONE, {
+    reserveBottom: reserveFor(704),
+  });
+
+  assert.ok(twoRows.top < oneRow.top, 'the taller control pushes the menu higher');
+  assert.equal(oneRow.top - twoRows.top, 36, 'by exactly the extra row');
+});
+
+test('a reserve never pushes the menu off the top', () => {
+  // A control taller than the room available must not invert the bounds and
+  // leave the menu at a negative top, where it cannot be reached.
+  for (const reserveBottom of [500, 900, 5000]) {
+    const placed = computePopoverPosition(FLOAT_BUTTON, MENU, PHONE, { reserveBottom });
+    assert.ok(placed.top >= 8, `reserve ${reserveBottom} put the menu at ${placed.top}`);
+    assert.ok(Number.isFinite(placed.top), `reserve ${reserveBottom} produced ${placed.top}`);
+  }
+});
+
+test('a reserve does not move a menu that fits below its anchor', () => {
+  // A card in the feed has no floating control under it, and even with one the
+  // menu belongs where it fits whenever there is room.
+  const anchor = { top: 100, left: 80, width: 32, height: 32 };
+  const small = { width: 240, height: 200 };
+
+  assert.deepEqual(
+    computePopoverPosition(anchor, small, PHONE, { reserveBottom: 60 }),
+    computePopoverPosition(anchor, small, PHONE),
+    'room below means the reserve is irrelevant'
+  );
+});
+
+test('a nonsense reserve is ignored rather than trusted', () => {
+  const plain = computePopoverPosition(FLOAT_BUTTON, MENU, PHONE);
+  for (const reserveBottom of [Number.NaN, -50, 0, Number.NEGATIVE_INFINITY]) {
+    assert.deepEqual(
+      computePopoverPosition(FLOAT_BUTTON, MENU, PHONE, { reserveBottom }),
+      plain,
+      `reserve ${reserveBottom} must leave placement alone`
+    );
+  }
+});
