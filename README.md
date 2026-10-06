@@ -58,7 +58,16 @@ note file is modified — that is the property the test suite guards hardest.
   algorithm preset, overridable from the feed header for a single session
 - **Named presets** for filters, algorithms, and display, plus a total preset
   that names one preset from each group
-- **Per-card rating** when you want to correct the schedule by hand
+- **Per-card rating** when you want to correct the schedule by hand, with the
+  four ratings coloured by what they mean: forgetting red, difficulty orange,
+  success green, triviality blue
+- **A per-note ignore list** for notes you never want to see again, written
+  straight from a card
+- **A floating control in any note opened from the feed** — the note stays
+  marked while you read it, so you can rate it when you actually know, rather
+  than at the moment you clicked the card
+- **Interface in English or 简体中文**, following Obsidian by default
+- **Preset export and import** as JSON, to the clipboard or a vault file
 - Shuffled card feed, not another list sorted by modification date
 - Manual reshuffle when the current batch is not doing it for you
 - Optional infinite scrolling that loads more notes as you reach the end
@@ -176,10 +185,14 @@ algorithm, and display groups.
   fields are then removed, so **downgrading to an older build loses your
   configuration**.
 - **Storage.** Presets live in `data.json`, which is gitignored, so they do not
-  travel with the repository or sync via git. (Export/import is planned.)
-- **No preset lists yet.** Creating, renaming, and deleting presets from the
-  settings page, the file-type category picker, the total-preset UI, and the
-  export/import buttons are still to come.
+  travel with the repository or sync via git. **Export and import** are how you
+  move a configuration between machines or back it up: either copy the JSON to
+  the clipboard or write it to a file in the vault. Importing is additive —
+  existing presets are kept, colliding ids are reassigned, and colliding names
+  are numbered.
+- **Managing presets.** Each group has a section in settings for creating,
+  renaming, copying and deleting presets. A group always keeps at least one, so
+  the last in a group cannot be deleted.
 
 ## Usage
 
@@ -195,8 +208,11 @@ algorithm, and display groups.
    on the spot — these last for the session only and are discarded when the
    feed is reopened, so it is safe to experiment
 7. With resurfacing on and grading not set to automatic-only, each card carries
-   a small gauge icon for rating it by hand
-8. Select your presets in settings to tune which notes appear and how
+   two buttons: a gauge for rating it by hand, and an ignore button for notes
+   you never want to see again
+8. A note opened from the feed keeps a floating control in its pane for as long
+   as the session lasts, so you can rate it after reading it
+9. Select your presets in settings to tune which notes appear and how
 
 ## Development
 
