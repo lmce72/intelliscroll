@@ -163,22 +163,32 @@ test('describeInterval tolerates a sweep of raw numbers without throwing or leak
 
 // ─── Retention precision ───────────────────────────────────────────────────
 
-test('retention precision rises as the value approaches the ceiling', () => {
-  assert.equal(retentionDecimals(0.97), 4, 'at the maximum');
-  assert.equal(retentionDecimals(0.94), 4, 'top band starts at 0.94');
-  assert.equal(retentionDecimals(0.9401), 4);
-  assert.equal(retentionDecimals(0.9399), 3, 'just below the top band');
+test('retention precision rises as the value approaches the sensitive end', () => {
+  assert.equal(retentionDecimals(0.99), 4, 'at the maximum');
+  assert.equal(retentionDecimals(0.95), 4, 'top band starts at 0.95');
+  assert.equal(retentionDecimals(0.9501), 4);
+  assert.equal(retentionDecimals(0.9499), 3, 'just below the top band');
   assert.equal(retentionDecimals(0.93), 3);
   assert.equal(retentionDecimals(0.9), 3, 'middle band starts at 0.90');
   assert.equal(retentionDecimals(0.8999), 2, 'just below the middle band');
   assert.equal(retentionDecimals(0.7), 2, 'at the minimum');
 });
 
-test('retention precision is anchored to the ceiling imported from types.ts', () => {
+test('retention precision does not move when the allowed range moves', () => {
+  // These were offsets from REQUEST_RETENTION_MAX. Raising that from 0.97 to
+  // 0.99 slid both bands upwards and changed what the control displayed, which
+  // is not something a display rule should do. They are absolute now, and this
+  // pins the reason: they describe where FSRS is sensitive, not how far the
+  // permitted range happens to reach.
   assert.equal(retentionDecimals(REQUEST_RETENTION_MAX), 4);
-  assert.equal(retentionDecimals(REQUEST_RETENTION_MAX - 0.03), 4);
-  assert.equal(retentionDecimals(REQUEST_RETENTION_MAX - 0.07), 3);
-  assert.equal(retentionDecimals(REQUEST_RETENTION_MAX - 0.07 - 0.0001), 2);
+  assert.equal(retentionDecimals(0.95), 4);
+  assert.equal(
+    retentionDecimals(0.9499),
+    3,
+    'the band edge is 0.95, not max minus something'
+  );
+  assert.equal(retentionDecimals(0.9), 3);
+  assert.equal(retentionDecimals(0.8999), 2);
 });
 
 test('an unusable retention value falls back to the coarsest precision', () => {
@@ -191,7 +201,8 @@ test('an unusable retention value falls back to the coarsest precision', () => {
 
 test('formatRetention renders at the precision its band calls for', () => {
   assert.equal(formatRetention(0.96), '0.9600');
-  assert.equal(formatRetention(0.94), '0.9400');
+  assert.equal(formatRetention(0.95), '0.9500');
+  assert.equal(formatRetention(0.94), '0.940');
   assert.equal(formatRetention(0.93), '0.930');
   assert.equal(formatRetention(0.9), '0.900');
   assert.equal(formatRetention(0.85), '0.85');
@@ -212,7 +223,7 @@ test('a retention step visibly changes the formatted output in the top band', ()
   // decimals exist. At two decimals they would all collapse to one string.
   const seen = new Set<string>();
   for (let i = 0; i < 20; i++) {
-    seen.add(formatRetention(0.94 + i * RETENTION_STEP));
+    seen.add(formatRetention(0.95 + i * RETENTION_STEP));
   }
   assert.equal(seen.size, 20);
 });

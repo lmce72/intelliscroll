@@ -91,7 +91,16 @@ export const FSRS_DEFAULT_TUNABLES: FsrsTunables = {
 };
 
 export const REQUEST_RETENTION_MIN = 0.7;
-export const REQUEST_RETENTION_MAX = 0.97;
+/**
+ * Upper bound on desired retention.
+ *
+ * 0.99 rather than 0.97 because that is where the knob stops doing anything:
+ * measured on the day-scale path, the ladder is `[1d, 2d, 3d, 4d]` at 0.99 and
+ * still `[1d, 2d, 3d, 4d]` at 1.0, so anything beyond it is a number that
+ * changes nothing except the review load. This is the outer envelope only —
+ * the control's real range is derived per preset by `fsrsRetentionWindow`.
+ */
+export const REQUEST_RETENTION_MAX = 0.99;
 export const MAXIMUM_INTERVAL_MIN = 1;
 export const MAXIMUM_INTERVAL_MAX = 3650;
 

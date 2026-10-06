@@ -7,7 +7,6 @@
  * language never touches arithmetic.
  */
 
-import { REQUEST_RETENTION_MAX } from './types.ts';
 
 export type IntervalUnit = 'days' | 'hours' | 'minutes';
 
@@ -137,19 +136,27 @@ export const RETENTION_STEP = 0.0001;
 // all collapse onto the same string — so precision is raised near the ceiling
 // rather than everywhere.
 //
-// The bands are measured down from the top of the allowed range, which is
-// imported from types.ts rather than retyped, so they stay anchored if that
-// ceiling ever moves. At the current maximum they land on 0.94 and 0.90.
-const HIGH_PRECISION_BAND = 0.03;
-const MEDIUM_PRECISION_BAND = 0.07;
+/**
+ * Where the display needs more decimals, as absolute values rather than as
+ * offsets from the allowed maximum.
+ *
+ * They were offsets, and raising the maximum from 0.97 to 0.99 silently slid
+ * both bands upwards and changed what the control displayed — a display rule
+ * that moves when an unrelated limit moves is not a rule about the display.
+ * What these describe is where *FSRS* becomes sensitive: the interval responds
+ * steeply to retention near the top of its range, which is a property of the
+ * forgetting curve and not of the range we happen to permit.
+ */
+const HIGH_PRECISION_FROM = 0.95;
+const MEDIUM_PRECISION_FROM = 0.9;
 
 /**
  * Decimal places to show for a retention value. More where a small change
  * moves the resulting interval a lot, so the control does not lie.
  */
 export function retentionDecimals(value: number): number {
-  if (value >= REQUEST_RETENTION_MAX - HIGH_PRECISION_BAND) return 4;
-  if (value >= REQUEST_RETENTION_MAX - MEDIUM_PRECISION_BAND) return 3;
+  if (value >= HIGH_PRECISION_FROM) return 4;
+  if (value >= MEDIUM_PRECISION_FROM) return 3;
   return 2;
 }
 

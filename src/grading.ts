@@ -115,15 +115,23 @@ export function thresholdsFor(
 }
 
 /**
- * A one-line description of what a threshold demands, e.g. the dwell it
- * requires. `formatMs` is injected so this module stays free of UI text.
+ * What a threshold demands, as data rather than as a sentence.
+ *
+ * Deliberately a tag, not a string: the settings page is localized, and a
+ * module that returned English frame text would drop an untranslatable phrase
+ * into the middle of a Chinese page. The caller owns the wording; this owns the
+ * numbers. Same split as `format.ts` and `longPress.ts`.
  */
-export function describeThresholds(
-  thresholds: SensitivityThresholds,
-  formatMs: (ms: number) => string
-): string {
-  if (thresholds.openedOnly) return 'Must be opened';
-  return `Dwell of at least ${formatMs(thresholds.engagedMs)}`;
+export type ThresholdDemand =
+  | { kind: 'openedOnly' }
+  | { kind: 'dwell'; ms: number };
+
+export function thresholdDemand(
+  thresholds: SensitivityThresholds
+): ThresholdDemand {
+  return thresholds.openedOnly
+    ? { kind: 'openedOnly' }
+    : { kind: 'dwell', ms: thresholds.engagedMs };
 }
 
 /**

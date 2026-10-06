@@ -25,7 +25,7 @@ import {
   writePresetControl,
 } from './presetSettings';
 import { setLanguage, t } from './i18n';
-import { describeThresholds, thresholdsFor } from './grading';
+import { thresholdDemand, thresholdsFor } from './grading';
 import {
   INTERVAL_UNITS,
   RETENTION_STEP,
@@ -632,8 +632,9 @@ function withTuning(
  * preset actually demands.
  *
  * The thresholds are data, not branches, precisely so the page can show them —
- * a preset the user cannot inspect is a setting they cannot reason about.
- * `describeThresholds` renders the wording; `formatMs` supplies the units.
+ * a preset the user cannot inspect is a setting they cannot reason about. The
+ * demand comes back as a tag and the wording is looked up here, so the sentence
+ * is fully translated rather than half English on a Chinese page.
  */
 function withCustomSensitivity(
   item: ControlItem,
@@ -643,10 +644,13 @@ function withCustomSensitivity(
   if (control.type !== 'dropdown') return item;
 
   const algorithm = plugin.getEffectiveAlgorithm();
-  const detail = describeThresholds(
-    thresholdsFor(algorithm.sensitivity, algorithm.sensitivityThresholds),
-    formatMs
+  const demand = thresholdDemand(
+    thresholdsFor(algorithm.sensitivity, algorithm.sensitivityThresholds)
   );
+  const detail =
+    demand.kind === 'openedOnly'
+      ? t('settings.sensitivity.demand.openedOnly')
+      : t('settings.sensitivity.demand.dwell', { time: formatMs(demand.ms) });
   const baseDesc =
     typeof item.desc === 'string'
       ? item.desc

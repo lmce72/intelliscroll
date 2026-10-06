@@ -6,7 +6,7 @@ import {
   MAX_DWELL_SAMPLE_MS,
   SENSITIVITY_THRESHOLDS,
   clampDwell,
-  describeThresholds,
+  thresholdDemand,
   gradeEngagement,
   ratingForVerdict,
   thresholdsFor,
@@ -275,24 +275,22 @@ test('malformed custom thresholds fall back instead of breaking scheduling', () 
   assert.deepEqual(thresholdsFor('custom', wrongTypes), fallback);
 });
 
-test('describeThresholds renders the real numbers, not copies', () => {
-  const seen: number[] = [];
-  const formatMs = (ms: number): string => {
-    seen.push(ms);
-    return `${ms} ms`;
-  };
+test('thresholdDemand reports the real numbers, not copies', () => {
+  // Data, not a sentence: the wording belongs to the i18n table, and a module
+  // returning English frame text would put an untranslatable phrase on a
+  // Chinese settings page.
+  const medium = thresholdDemand(thresholdsFor('medium'));
+  assert.deepEqual(medium, { kind: 'dwell', ms: DWELL_HIGH_MS });
+  assert.equal(medium.kind === 'dwell' && medium.ms, DWELL_HIGH_MS);
 
-  const described = describeThresholds(thresholdsFor('medium'), formatMs);
-  assert.deepEqual(seen, [DWELL_HIGH_MS]);
-  assert.ok(described.includes(String(DWELL_HIGH_MS)));
-  // The advertised number is the constant, not a literal written into wording.
-  assert.equal(described, `Dwell of at least ${DWELL_HIGH_MS} ms`);
+  const aggressive = thresholdDemand(thresholdsFor('aggressive'));
+  assert.equal(aggressive.kind === 'dwell' && aggressive.ms, DWELL_LOW_MS);
 
-  // An opened-only threshold has no dwell requirement to describe.
-  seen.length = 0;
-  const openedOnly = describeThresholds(thresholdsFor('conservative'), formatMs);
-  assert.deepEqual(seen, []);
-  assert.ok(!openedOnly.includes(String(DWELL_HIGH_MS)));
+  // An opened-only threshold has no dwell requirement at all, rather than a
+  // sentinel the caller would have to know to ignore.
+  assert.deepEqual(thresholdDemand(thresholdsFor('conservative')), {
+    kind: 'openedOnly',
+  });
 });
 
 test('SENSITIVITY_OPTIONS lists the presets first and custom last', () => {

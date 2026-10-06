@@ -4,6 +4,8 @@ import {
   DEFAULT_TIER_COUNT,
   DEFAULT_TOP_GAP_DAYS,
   FSRS_DEFAULT_TUNABLES,
+  REQUEST_RETENTION_MAX,
+  REQUEST_RETENTION_MIN,
   TOP_GAP_DAYS_MAX,
   TOP_GAP_DAYS_MIN,
   isTierCount,
@@ -135,8 +137,8 @@ test('the shipped defaults carry every tuning field', () => {
 test('a missing window falls back to the global range and says so', () => {
   const bounds = retentionBounds(null, 0.9);
   assert.deepEqual(bounds, {
-    min: 0.7,
-    max: 0.97,
+    min: REQUEST_RETENTION_MIN,
+    max: REQUEST_RETENTION_MAX,
     fellBack: true,
     outside: false,
   });
@@ -195,8 +197,17 @@ test('a 30-day cap and a 2-day gap yield a window, not nothing', () => {
   );
 
   assert.ok(window !== null, 'a qualifying retention range exists');
-  assert.ok(window.min >= 0.7 && window.max <= 0.97, 'window stays in range');
+  assert.ok(
+    window.min >= REQUEST_RETENTION_MIN && window.max <= REQUEST_RETENTION_MAX,
+    'window stays inside the allowed range'
+  );
   assert.ok(window.min > 0.9, 'the clamp forces retention high before the gap opens');
+  // Both ends are derived, not clipped at the ceiling: past the upper edge the
+  // ladder is squeezed until the top two tiers are less than the gap apart.
+  assert.ok(
+    window.max < REQUEST_RETENTION_MAX,
+    'the upper edge is found by the rule, not by running out of range'
+  );
 
   // The rule is satisfied at the window's lower edge and violated just below it.
   const gapAt = (retention: number): number => {

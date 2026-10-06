@@ -128,6 +128,8 @@ export const messages: MessageModule = {
     'settings.sensitivity.option.custom': 'Custom',
 
     'settings.sensitivity.effective': 'Currently: {detail}.',
+    'settings.sensitivity.demand.openedOnly': 'the note must be opened',
+    'settings.sensitivity.demand.dwell': 'at least {time} on screen',
     'settings.sensitivity.custom.openedOnly.name': 'Count only opened notes',
     'settings.sensitivity.custom.openedOnly.desc':
       'Treat a note as engaged only when you open it, ignoring how long it was on screen.',
@@ -273,6 +275,8 @@ export const messages: MessageModule = {
     'settings.sensitivity.option.custom': '自定义',
 
     'settings.sensitivity.effective': '当前条件：{detail}。',
+    'settings.sensitivity.demand.openedOnly': '必须打开过该笔记',
+    'settings.sensitivity.demand.dwell': '在屏幕上停留至少 {time}',
     'settings.sensitivity.custom.openedOnly.name': '仅统计打开过的笔记',
     'settings.sensitivity.custom.openedOnly.desc':
       '只有真正打开笔记才算「已浏览」，忽略其在屏幕上停留的时长。',
