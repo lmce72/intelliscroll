@@ -155,8 +155,11 @@ export const messages: MessageModule = {
       'Days the highest rating must schedule beyond the next one. Raises the smallest retention the control allows so adjacent ratings stay distinct.',
 
     'settings.maximumInterval.name': 'Maximum interval',
+    // Names both halves of the trade-off. The old copy said only "raise it to
+    // let well-known notes go longer", which does not tell you that leaving
+    // it low is what stops them ever going long.
     'settings.maximumInterval.desc':
-      'Longest gap in days before a note is shown again. Defaults to 30; raise it to let well-known notes go longer.',
+      'Longest gap in days before a note is shown again. Defaults to 30. It is also the ceiling on how far a note you already know can ever be spaced — at 30 it returns within a month however well you know it — so raise it to let mature notes go months or years.',
 
     'settings.enableFuzz.name': 'Fuzz due dates',
     'settings.enableFuzz.desc':
@@ -302,7 +305,8 @@ export const messages: MessageModule = {
       '最高评分相对次高评分至少要拉开的间隔天数。它会抬高控件允许的最小保持率，使相邻评分不会塌缩成同一间隔。',
 
     'settings.maximumInterval.name': '最大间隔',
-    'settings.maximumInterval.desc': '笔记再次出现前的最长间隔天数。默认 30 天；调高后已熟的笔记可以隔得更久。',
+    'settings.maximumInterval.desc':
+      '笔记再次出现前的最长间隔天数。默认 30 天。它同时是「已经记牢的笔记最多能隔多久」的天花板——30 天下无论多熟都会在一个月内回来；调高它，成熟笔记才能隔几个月甚至几年。',
 
     'settings.enableFuzz.name': '到期日模糊化',
     'settings.enableFuzz.desc': '略微分散到期日，避免所有笔记都在同一天回来',

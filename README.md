@@ -185,10 +185,26 @@ the gap widens it.
 If your saved retention falls outside the window the settings page says so,
 rather than quietly changing a scheduling value you chose.
 
-**On the maximum interval:** shortening it does not shorten your intervals so
-much as flatten the ladder. At a 30-day cap, any note reviewed more than twice
-gives `30 / 31 / 32` days for hard, good and easy — three buttons that do the
-same thing. Raise the cap and lower the retention instead.
+**On the maximum interval:** it cuts both ways, and the default of 30 days is
+deliberately conservative. It is settable from 1 to 3650 days, and raising it
+is how a note you know well ever gets spaced out at all — at retention 0.85 a
+note on its fourth review wants 2028 days for *easy*, and a 30-day cap turns
+that into 31.
+
+Shortening it does not shorten your intervals so much as flatten the ladder,
+and lengthening it does not damage the short end. Measured at retention 0.85,
+by how many times the note has been reviewed:
+
+```
+reviews   stability   cap 30                    cap 3650
+   2          16      30 / 31 / 32              4 / 117 / 173 / 298 days
+   4         405      30 / 31 / 32              13 / 2028 / 2859 / 3650 days
+   8       14027      30 / 31 / 32              32 / 3650 / 3650 / 3650 days
+```
+
+The first rung is unaffected in every row. The cap only ever truncates the top
+of the ladder, so raising it costs nothing below and buys back the whole long
+end.
 
 ### Display presets
 
