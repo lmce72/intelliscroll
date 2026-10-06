@@ -5,6 +5,7 @@ import { SrsStore, logSrsError } from './srsLog.ts';
 import { t } from './i18n.ts';
 import { setIcon } from 'obsidian';
 import {
+  normalizeTierCount,
   REQUEST_RETENTION_MAX,
   REQUEST_RETENTION_MIN,
   type Rating,
@@ -33,14 +34,14 @@ import {
 export const RATING_ORDER: readonly Rating[] = ['again', 'hard', 'good', 'easy'];
 
 /**
- * Rungs the rating popover shows.
+ * Rungs the rating popover shows when the caller does not say.
  *
- * Four grades put an enormous interval jump in a single row, which reads as the
- * scale having no shape. The extra rungs are interpolated for display only —
- * see `src/tiers.ts` — and are never committed, because only a native grade is
- * something FSRS actually computed.
+ * The live count is the display preset's `tierCount`; this is only the fallback
+ * for a caller that has none. It is deliberately not baked into `tiersFor` —
+ * an earlier version hardcoded 8 here, which meant the setting did nothing and
+ * the popover disagreed with the settings page.
  */
-export const TIER_COUNT = 8;
+export const DEFAULT_TIER_COUNT = 8;
 
 const RATING_ICONS: Record<Rating, string> = {
   again: 'rotate-ccw',
@@ -264,6 +265,10 @@ function tiersFor(
   const preset = plugin.getEffectiveAlgorithm();
   if (preset.algorithm === 'off') return [];
 
+  const tierCount = normalizeTierCount(
+    plugin.getEffectiveDisplay().tierCount ?? DEFAULT_TIER_COUNT
+  );
+
   const state = plugin.srsStore?.getState(path) ?? null;
   const fsrs =
     retention === undefined
@@ -278,7 +283,7 @@ function tiersFor(
     fsrs,
   });
 
-  return expandTiers(steps, TIER_COUNT);
+  return expandTiers(steps, tierCount);
 }
 
 /**
