@@ -2,12 +2,11 @@ import { Menu, TFile } from 'obsidian';
 import type IntelliScrollPlugin from './main';
 import { getAlgorithm } from './algorithms/index.ts';
 import { SrsStore, logSrsError } from './srsLog.ts';
+import { fsrsRetentionWindow, retentionBounds } from './presets.ts';
 import { t } from './i18n.ts';
 import { setIcon } from 'obsidian';
 import {
   normalizeTierCount,
-  REQUEST_RETENTION_MAX,
-  REQUEST_RETENTION_MIN,
   type Rating,
 } from './types.ts';
 import { expandTiers, type Tier } from './tiers.ts';
@@ -287,6 +286,36 @@ function tiersFor(
 }
 
 /**
+ * The range the retention adjuster is allowed to move through.
+ *
+ * Deliberately the same derivation the settings page uses, not the global
+ * 0.70–0.99 envelope. The two disagreed until this existed: settings bounded
+ * retention by the window in which the ladder's top two tiers stay distinct,
+ * while the rating menu allowed the whole envelope — so a note could be taken
+ * to a retention whose ladder had collapsed. Observed: four rungs reading
+ * "4 days / 19 days / 20 days / 21 days", where three of the four ratings do
+ * the same thing and "forgot" schedules a note four days out.
+ *
+ * Falling back to the envelope when no window exists is correct: a rule that
+ * admits nothing would lock the control entirely.
+ */
+function retentionLimits(plugin: IntelliScrollPlugin): {
+  min: number;
+  max: number;
+} {
+  const preset = plugin.getEffectiveAlgorithm();
+  const bounds = retentionBounds(
+    fsrsRetentionWindow(
+      preset.fsrsTunables,
+      preset.topGapDays,
+      normalizeTierCount(plugin.getEffectiveDisplay().tierCount)
+    ),
+    preset.fsrsTunables.requestRetention
+  );
+  return { min: bounds.min, max: bounds.max };
+}
+
+/**
  * Where the popover attaches.
  *
  * A click from a button carries that button as `currentTarget`; anything else
@@ -368,8 +397,7 @@ export function showRatingMenu(options: RatingMenuOptions): void {
     preset.algorithm === 'fsrs'
       ? {
           value: preset.fsrsTunables.requestRetention,
-          min: REQUEST_RETENTION_MIN,
-          max: REQUEST_RETENTION_MAX,
+          ...retentionLimits(plugin),
           step: RETENTION_STEP,
           preview: (value: number) => {
             // This runs on a live drag, so a throw must not leave the panel
