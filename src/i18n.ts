@@ -14,6 +14,7 @@
 
 import { messages as presetMessages } from './i18n/messages.presets.ts';
 import { messages as settingsMessages } from './i18n/messages.settings.ts';
+import { messages as tuningMessages } from './i18n/messages.tuning.ts';
 import { messages as viewMessages } from './i18n/messages.view.ts';
 
 import { LANGUAGES, isLanguage, type Language } from './types.ts';
@@ -38,6 +39,7 @@ const MODULES: readonly MessageModule[] = [
   settingsMessages,
   presetMessages,
   viewMessages,
+  tuningMessages,
 ];
 
 const en: MessageTable = {};

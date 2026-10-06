@@ -52,6 +52,22 @@ export const messages: MessageModule = {
     'settings.previewSize.option.medium': 'Medium',
     'settings.previewSize.option.large': 'Large',
 
+    'settings.intervalUnit.name': 'Interval unit',
+    'settings.intervalUnit.desc':
+      'Unit the resurfacing intervals are shown in. Scheduling is always in days; this only changes how they are read.',
+    'settings.intervalUnit.option.days': 'Days',
+    'settings.intervalUnit.option.hours': 'Hours',
+    'settings.intervalUnit.option.minutes': 'Minutes',
+
+    'settings.tierCount.name': 'Rating tiers',
+    'settings.tierCount.desc':
+      'How many rungs the interval ladder shows between the ratings. More tiers give finer choices without inventing new grades.',
+    'settings.tierCount.option': '{count} tiers',
+
+    'settings.promptRatingAfterRead.name': 'Offer ratings after reading',
+    'settings.promptRatingAfterRead.desc':
+      'Once a note opened from the feed has been read, expand its floating control into the ratings. Off by default so it never interrupts a first read.',
+
     'settings.searchQuery.name': 'Search query',
     'settings.searchQuery.desc':
       'Filter notes using Obsidian-style search syntax, such as tag:#work or [status:Draft]',
@@ -109,10 +125,29 @@ export const messages: MessageModule = {
     'settings.sensitivity.option.conservative': 'Conservative',
     'settings.sensitivity.option.medium': 'Medium',
     'settings.sensitivity.option.aggressive': 'Aggressive',
+    'settings.sensitivity.option.custom': 'Custom',
+
+    'settings.sensitivity.effective': 'Currently: {detail}.',
+    'settings.sensitivity.custom.openedOnly.name': 'Count only opened notes',
+    'settings.sensitivity.custom.openedOnly.desc':
+      'Treat a note as engaged only when you open it, ignoring how long it was on screen.',
+    'settings.sensitivity.custom.engagedMs.name': 'Minimum dwell',
+    'settings.sensitivity.custom.engagedMs.desc':
+      'Milliseconds a note must stay on screen to count as engaged.',
 
     'settings.requestRetention.name': 'Desired retention',
     'settings.requestRetention.desc':
       'Target chance of still remembering a note when it returns. Higher means shorter intervals and many more reviews; 0.85-0.90 suits most people.',
+    'settings.requestRetention.window':
+      'The {gap}-day top-gap rule allows {min} to {max} at this maximum interval.',
+    'settings.requestRetention.windowFallback':
+      'No retention value satisfies the {gap}-day top-gap rule at this maximum interval, so the full range is offered. Lower the maximum interval or the top gap.',
+    'settings.requestRetention.outside':
+      'The saved value is outside the rule range. It stays selectable so the control does not misreport it, but only values inside the range satisfy the top-gap rule.',
+
+    'settings.topGapDays.name': 'Top tier gap',
+    'settings.topGapDays.desc':
+      'Days the highest rating must schedule beyond the next one. Raises the smallest retention the control allows so adjacent ratings stay distinct.',
 
     'settings.maximumInterval.name': 'Maximum interval',
     'settings.maximumInterval.desc':
@@ -160,6 +195,22 @@ export const messages: MessageModule = {
     'settings.previewSize.option.small': '短',
     'settings.previewSize.option.medium': '中',
     'settings.previewSize.option.large': '长',
+
+    'settings.intervalUnit.name': '间隔单位',
+    'settings.intervalUnit.desc':
+      '重新浮现的间隔以何种单位显示。排程始终以天为单位，这里只改变读数方式。',
+    'settings.intervalUnit.option.days': '天',
+    'settings.intervalUnit.option.hours': '小时',
+    'settings.intervalUnit.option.minutes': '分钟',
+
+    'settings.tierCount.name': '评分档位',
+    'settings.tierCount.desc':
+      '间隔阶梯在评分之间展示多少档位。档位越多，选择越细，但不会新增评分等级。',
+    'settings.tierCount.option': '{count} 档',
+
+    'settings.promptRatingAfterRead.name': '读完后提供评分',
+    'settings.promptRatingAfterRead.desc':
+      '从卡片流打开的笔记读完后，把它右下角的浮动控件展开成评分按钮。默认关闭，以免打断第一次阅读。',
 
     'settings.searchQuery.name': '搜索查询',
     'settings.searchQuery.desc':
@@ -216,10 +267,29 @@ export const messages: MessageModule = {
     'settings.sensitivity.option.conservative': '保守',
     'settings.sensitivity.option.medium': '适中',
     'settings.sensitivity.option.aggressive': '激进',
+    'settings.sensitivity.option.custom': '自定义',
+
+    'settings.sensitivity.effective': '当前条件：{detail}。',
+    'settings.sensitivity.custom.openedOnly.name': '仅统计打开过的笔记',
+    'settings.sensitivity.custom.openedOnly.desc':
+      '只有真正打开笔记才算「已浏览」，忽略其在屏幕上停留的时长。',
+    'settings.sensitivity.custom.engagedMs.name': '最短停留时间',
+    'settings.sensitivity.custom.engagedMs.desc':
+      '笔记在屏幕上停留多少毫秒才算「已浏览」。',
 
     'settings.requestRetention.name': '目标记忆保持率',
     'settings.requestRetention.desc':
       '笔记再次出现时仍记得的目标概率。数值越高，间隔越短、复习次数越多；0.85-0.90 适合大多数人。',
+    'settings.requestRetention.window':
+      '当前最大间隔下，{gap} 天档位差规则允许 {min} 到 {max}。',
+    'settings.requestRetention.windowFallback':
+      '当前最大间隔下，没有任何保持率能满足 {gap} 天档位差规则，因此开放完整区间。请调低最大间隔或档位差。',
+    'settings.requestRetention.outside':
+      '已保存的数值不在规则区间内。控件仍如实显示它，但只有区间内的数值才满足档位差规则。',
+
+    'settings.topGapDays.name': '最高档位差',
+    'settings.topGapDays.desc':
+      '最高评分相对次高评分至少要拉开的间隔天数。它会抬高控件允许的最小保持率，使相邻评分不会塌缩成同一间隔。',
 
     'settings.maximumInterval.name': '最大间隔',
     'settings.maximumInterval.desc': '笔记再次出现前的最长间隔天数。默认 30 天；调高后已熟的笔记可以隔得更久。',

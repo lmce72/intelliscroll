@@ -4,6 +4,8 @@ import {
   isLanguage,
   normalizeMaximumInterval,
   normalizeRetention,
+  normalizeTierCount,
+  normalizeTopGapDays,
   type AlgorithmPreset,
   type DisplayPreset,
   type FilterPreset,
@@ -16,9 +18,11 @@ import {
   activeAlgorithm,
   activeDisplay,
   activeFilter,
+  backfillPresetDefaults,
   ensureLibrary,
   idsForTotal,
   libraryFromUnknownLegacy,
+  normalizeIntervalUnit,
   resolveActiveIds,
 } from './presets';
 import { DEFAULT_SETTINGS, IntelliScrollSettingTab } from './settings';
@@ -144,6 +148,36 @@ export default class IntelliScrollPlugin extends Plugin {
       }
     }
     if (tunablesChanged) migrated = true;
+
+    // The tuning fields added after this fork shipped: the top-gap rule on the
+    // algorithm preset, the interval unit and tier count on the display preset.
+    // `ensureLibrary` already backfilled them, but re-validating here is what
+    // makes the load path the single place a bad value can be caught and
+    // persisted, and keeps the invariant visible next to the FSRS tunables.
+    let tuningChanged = false;
+    for (const preset of presets.algorithms) {
+      const topGapDays = normalizeTopGapDays(preset.topGapDays);
+      if (topGapDays !== preset.topGapDays) {
+        preset.topGapDays = topGapDays;
+        tuningChanged = true;
+      }
+    }
+    for (const preset of presets.displays) {
+      const intervalUnit = normalizeIntervalUnit(preset.intervalUnit);
+      const tierCount = normalizeTierCount(preset.tierCount);
+      if (
+        intervalUnit !== preset.intervalUnit ||
+        tierCount !== preset.tierCount
+      ) {
+        preset.intervalUnit = intervalUnit;
+        preset.tierCount = tierCount;
+        tuningChanged = true;
+      }
+    }
+    // `backfillPresetDefaults` is idempotent; calling it here documents that the
+    // same rule applies to a library that reached this point another way.
+    backfillPresetDefaults(presets);
+    if (tuningChanged) migrated = true;
 
     const activeIds = resolveActiveIds(presets, loadedSettings);
     // A fresh migration lands on the "Default" preset in every group, so the

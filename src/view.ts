@@ -31,7 +31,7 @@ import {
 } from './types';
 import { selectBatch } from './selector';
 import { allAlgorithms, getAlgorithm } from './algorithms';
-import { clampDwell, gradeEngagement, ratingForVerdict } from './grading';
+import { clampDwell, gradeEngagement, ratingForVerdict, thresholdsFor } from './grading';
 import { SrsStore, logSrsError } from './srsLog';
 import { ignoreIcon, ignoreLabel, isIgnored, paintRatingButton, showIgnoreMenu, showRatingMenu } from './rating';
 import { passesFileTypeRule } from './filtering';
@@ -1323,10 +1323,15 @@ export class IntelliScrollView extends ItemView {
     if (!this.plugin.srsStore?.isLoaded) return;
     if (!getAlgorithm(algorithm).schedules) return;
 
+    const thresholds = thresholdsFor(
+      this.effectiveSensitivity(),
+      this.plugin.getEffectiveAlgorithm().sensitivityThresholds
+    );
+
     for (const [path, sample] of samples) {
       const verdict = gradeEngagement(
         { opened: sample.opened, dwellMs: sample.ms },
-        this.effectiveSensitivity()
+        thresholds
       );
       void this.recordEngagement(path, verdict, algorithm, now);
     }

@@ -1,4 +1,9 @@
-import { AUTO_RATING, type Rating, type Sensitivity } from './types.ts';
+import {
+  AUTO_RATING,
+  type Rating,
+  type Sensitivity,
+  type SensitivityThresholds,
+} from './types.ts';
 
 /**
  * Turn observed behaviour into a grading decision.
@@ -49,33 +54,96 @@ export function clampDwell(ms: number): number {
 }
 
 /**
+ * What each preset stands for. The settings page renders these, so they are
+ * data rather than branches — a preset the user cannot inspect is a setting
+ * they cannot reason about.
+ *
+ * Built from `DWELL_LOW_MS` / `DWELL_HIGH_MS` so the numbers the settings page
+ * displays cannot drift from the numbers the grader actually uses.
+ */
+export const SENSITIVITY_THRESHOLDS: Record<
+  Exclude<Sensitivity, 'custom'>,
+  SensitivityThresholds
+> = {
+  // Only an explicit open counts; dwell is not trusted enough to move a
+  // schedule, so `engagedMs` is deliberately unused.
+  conservative: { openedOnly: true, engagedMs: DWELL_HIGH_MS },
+  medium: { openedOnly: false, engagedMs: DWELL_HIGH_MS },
+  // Any real dwell counts, so intervals advance faster.
+  aggressive: { openedOnly: false, engagedMs: DWELL_LOW_MS },
+};
+
+/**
+ * Collapse a possibly-untrustworthy custom threshold into one that is safe to
+ * compare against.
+ *
+ * The values arrive from persisted settings, which may predate or outlive this
+ * code, so a field that is not a boolean or not a finite, non-negative number
+ * falls back to the medium preset rather than being trusted. A `NaN` threshold
+ * would make every comparison false and silently freeze scheduling.
+ */
+function sanitizeThresholds(
+  custom: SensitivityThresholds | undefined
+): SensitivityThresholds {
+  const fallback = SENSITIVITY_THRESHOLDS.medium;
+  if (!custom) return fallback;
+
+  const openedOnly =
+    typeof custom.openedOnly === 'boolean'
+      ? custom.openedOnly
+      : fallback.openedOnly;
+  const engagedMs =
+    typeof custom.engagedMs === 'number' &&
+    Number.isFinite(custom.engagedMs) &&
+    custom.engagedMs >= 0
+      ? custom.engagedMs
+      : fallback.engagedMs;
+
+  return { openedOnly, engagedMs };
+}
+
+/**
+ * Resolve a setting to concrete thresholds. `custom` falls back to `medium`
+ * when unspecified.
+ */
+export function thresholdsFor(
+  sensitivity: Sensitivity,
+  custom?: SensitivityThresholds
+): SensitivityThresholds {
+  if (sensitivity === 'custom') return sanitizeThresholds(custom);
+  return SENSITIVITY_THRESHOLDS[sensitivity];
+}
+
+/**
+ * A one-line description of what a threshold demands, e.g. the dwell it
+ * requires. `formatMs` is injected so this module stays free of UI text.
+ */
+export function describeThresholds(
+  thresholds: SensitivityThresholds,
+  formatMs: (ms: number) => string
+): string {
+  if (thresholds.openedOnly) return 'Must be opened';
+  return `Dwell of at least ${formatMs(thresholds.engagedMs)}`;
+}
+
+/**
  * Decide whether a card's showing counts as engagement.
  *
- * The three sensitivity settings differ only in how much evidence they demand
- * before advancing a note's schedule — none of them ever produce a negative
- * rating, because behaviour cannot justify one.
+ * The thresholds only decide how much evidence is demanded before advancing a
+ * note's schedule — none of them ever produce a negative rating, because
+ * behaviour cannot justify one.
  */
 export function gradeEngagement(
   signals: EngagementSignals,
-  sensitivity: Sensitivity
+  thresholds: SensitivityThresholds
 ): EngagementVerdict {
   // Opening the note is the strongest signal available and always counts.
   if (signals.opened) return 'engaged';
 
-  const dwell = clampDwell(signals.dwellMs);
+  if (thresholds.openedOnly) return 'unengaged';
 
-  switch (sensitivity) {
-    case 'conservative':
-      // Only an explicit open counts; dwell is not trusted enough to move a
-      // schedule.
-      return 'unengaged';
-    case 'aggressive':
-      // Any real dwell counts, so intervals advance faster.
-      return dwell >= DWELL_LOW_MS ? 'engaged' : 'unengaged';
-    case 'medium':
-    default:
-      return dwell >= DWELL_HIGH_MS ? 'engaged' : 'unengaged';
-  }
+  const dwell = clampDwell(signals.dwellMs);
+  return dwell >= thresholds.engagedMs ? 'engaged' : 'unengaged';
 }
 
 /**

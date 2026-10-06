@@ -1,10 +1,25 @@
 import { Menu, TFile } from 'obsidian';
 import type IntelliScrollPlugin from './main';
 import { getAlgorithm } from './algorithms/index.ts';
-import { SrsStore } from './srsLog.ts';
+import { SrsStore, logSrsError } from './srsLog.ts';
 import { t } from './i18n.ts';
 import { setIcon } from 'obsidian';
-import type { Rating } from './types.ts';
+import {
+  REQUEST_RETENTION_MAX,
+  REQUEST_RETENTION_MIN,
+  type Rating,
+} from './types.ts';
+import { expandTiers, type Tier } from './tiers.ts';
+import {
+  RETENTION_STEP,
+  describeInterval,
+  type IntervalUnit,
+} from './format.ts';
+import {
+  isTapGesture,
+  openTierPopover,
+  type TierPopoverRating,
+} from './ratingPopover.ts';
 
 /**
  * Rating and ignoring, shared by both entry points: a card in the feed and the
@@ -16,6 +31,16 @@ import type { Rating } from './types.ts';
  */
 
 export const RATING_ORDER: readonly Rating[] = ['again', 'hard', 'good', 'easy'];
+
+/**
+ * Rungs the rating popover shows.
+ *
+ * Four grades put an enormous interval jump in a single row, which reads as the
+ * scale having no shape. The extra rungs are interpolated for display only —
+ * see `src/tiers.ts` — and are never committed, because only a native grade is
+ * something FSRS actually computed.
+ */
+export const TIER_COUNT = 8;
 
 const RATING_ICONS: Record<Rating, string> = {
   again: 'rotate-ccw',
@@ -71,6 +96,35 @@ export function paintRatingButton(
 
 export function ratingLabel(rating: Rating): string {
   return t(`view.rating.${rating}`);
+}
+
+/** The colour class a rating paints itself with. Shared with inline choices. */
+export function ratingColorClass(rating: Rating): string {
+  return RATING_CLASS[rating];
+}
+
+const SINGULAR_UNIT_KEY: Record<IntervalUnit, string> = {
+  days: 'day',
+  hours: 'hour',
+  minutes: 'minute',
+};
+
+/**
+ * A tier's interval, worded for display in the requested unit.
+ *
+ * The unit comes from the display preset rather than being picked per interval.
+ * Choosing it per interval reads better in isolation but produces a ladder that
+ * mixes "3 days" with "20 minutes" in one column, and the point of offering the
+ * switch at all is that the reader decides which scale they are thinking in.
+ * `describeInterval` is what keeps a sub-unit value from rendering as "0".
+ */
+export function formatTierInterval(tier: Tier, unit: IntervalUnit): string {
+  const display = describeInterval(tier.intervalDays, unit);
+  const singular = display.decimals === 0 && display.value === 1;
+  const key = singular ? SINGULAR_UNIT_KEY[display.unit] : display.unit;
+  return t(`tuning.interval.${key}`, {
+    value: display.value.toFixed(display.decimals),
+  });
 }
 
 /** One thing the ignore menu can offer. */
@@ -194,28 +248,170 @@ export interface RatingMenuOptions {
   onRated?: (rating: Rating) => void;
 }
 
-/** The rating menu, identical wherever it is opened from. */
-export function showRatingMenu(options: RatingMenuOptions): void {
-  const { plugin, event, path, onRated } = options;
-  const menu = new Menu();
+/**
+ * The tiers a rating would schedule, from the note's current state.
+ *
+ * The ladder is built here rather than at the call sites so a card and the
+ * floating control cannot preview different numbers. An `off` algorithm has no
+ * ladder at all, which is returned as an empty list rather than a fabricated
+ * one: a shuffled feed genuinely has no schedule to preview.
+ */
+function tiersFor(
+  plugin: IntelliScrollPlugin,
+  path: string,
+  retention?: number
+): Tier[] {
+  const preset = plugin.getEffectiveAlgorithm();
+  if (preset.algorithm === 'off') return [];
 
-  menu.addItem((item) => item.setTitle(t('view.menu.rating')).setIsLabel(true));
-  for (const rating of RATING_ORDER) {
-    menu.addItem((item) =>
-      item
-        .setTitle(ratingLabel(rating))
-        .setIcon(RATING_ICONS[rating])
-        .onClick(() => {
-          void (async () => {
-            if (await applyRating(plugin, path, rating, 'explicit')) {
-              onRated?.(rating);
-            }
-          })();
-        })
-    );
+  const state = plugin.srsStore?.getState(path) ?? null;
+  const fsrs =
+    retention === undefined
+      ? preset.fsrsTunables
+      : { ...preset.fsrsTunables, requestRetention: retention };
+
+  const steps = getAlgorithm(preset.algorithm).ladder(state, {
+    now: Date.now(),
+    // The preview resolves no content, so the stored hash is as good as any;
+    // it exists only so the context matches what a real review would carry.
+    hash: state?.hash ?? '',
+    fsrs,
+  });
+
+  return expandTiers(steps, TIER_COUNT);
+}
+
+/**
+ * Where the popover attaches.
+ *
+ * A click from a button carries that button as `currentTarget`; anything else
+ * (a keyboard activation, a programmatic call) gets a zero-size stand-in at the
+ * click point so the popover still lands under the pointer. The stand-in is
+ * removed when the popover closes.
+ */
+function anchorForEvent(event: MouseEvent): {
+  element: HTMLElement;
+  cleanup: () => void;
+} {
+  const target: EventTarget | null = event.currentTarget;
+  if (target instanceof HTMLElement) {
+    return { element: target, cleanup: () => undefined };
   }
 
-  menu.showAtMouseEvent(event);
+  const doc = event.view?.document ?? activeDocument;
+  const element = doc.body.createDiv({
+    cls: 'intelliscroll-popover-anchor',
+  });
+  element.style.position = 'fixed';
+  element.style.left = `${event.clientX}px`;
+  element.style.top = `${event.clientY}px`;
+  element.style.width = '0';
+  element.style.height = '0';
+  return { element, cleanup: () => element.remove() };
+}
+
+/** The rating popover, identical wherever it is opened from. */
+export function showRatingMenu(options: RatingMenuOptions): void {
+  const { plugin, event, path, onRated } = options;
+
+  // A click that was really a swipe, or the tail of a long hold, must not open
+  // a menu — on a tablet that is how one appears under a moving finger.
+  if (!isTapGesture(event)) return;
+
+  const preset = plugin.getEffectiveAlgorithm();
+  // Every interval in this menu is read out in one unit, chosen by the display
+  // preset, so the ladder does not mix scales down a single column.
+  const intervalUnit = plugin.getEffectiveDisplay().intervalUnit;
+  const anchor = anchorForEvent(event);
+
+  let tiers: Tier[] = [];
+  try {
+    tiers = tiersFor(plugin, path);
+  } catch (error) {
+    // A ladder that cannot be built must not stop the ratings from being
+    // offered; they simply appear without an interval, as for `off`.
+    logSrsError('rating ladder unavailable', error);
+  }
+
+  const commit = (rating: Rating): void => {
+    void (async () => {
+      try {
+        if (await applyRating(plugin, path, rating, 'explicit')) {
+          onRated?.(rating);
+        }
+      } catch (error) {
+        logSrsError('failed to record a rating', error);
+      }
+    })();
+  };
+
+  // When there is no ladder the ratings are still offered, just without an
+  // interval beside them.
+  const ratings: TierPopoverRating[] =
+    tiers.length === 0
+      ? RATING_ORDER.map((rating) => ({
+          key: rating,
+          label: ratingLabel(rating),
+          icon: RATING_ICONS[rating],
+          onPick: () => commit(rating),
+        }))
+      : [];
+
+  // Retention is an FSRS parameter; for the other algorithms the adjuster would
+  // move a number nothing reads, so it is not offered.
+  const retention =
+    preset.algorithm === 'fsrs'
+      ? {
+          value: preset.fsrsTunables.requestRetention,
+          min: REQUEST_RETENTION_MIN,
+          max: REQUEST_RETENTION_MAX,
+          step: RETENTION_STEP,
+          preview: (value: number) => {
+            // This runs on a live drag, so a throw must not leave the panel
+            // mid-refresh: the last good ladder is kept and the failure logged.
+            try {
+              return tiersFor(plugin, path, value);
+            } catch (error) {
+              logSrsError('rating preview failed', error);
+              return tiers;
+            }
+          },
+          onChange: (value: number) => {
+            // A temporary, session-scoped tweak, matching how the feed's tune
+            // controls behave; nothing is written to disk until saved.
+            plugin.applySessionAlgorithm({
+              fsrsTunables: {
+                ...preset.fsrsTunables,
+                requestRetention: value,
+              },
+            });
+          },
+        }
+      : undefined;
+
+  openTierPopover({
+    anchor: anchor.element,
+    tiers,
+    formatInterval: (tier) => formatTierInterval(tier, intervalUnit),
+    labelTier: (tier) =>
+      tier.rating !== undefined
+        ? ratingLabel(tier.rating)
+        : t('tuning.tier.interpolated', { tier: tier.tier }),
+    iconTier: (tier) =>
+      tier.rating !== undefined ? RATING_ICONS[tier.rating] : 'circle',
+    renderIcon: (element, icon) => setIcon(element, icon),
+    onPick: (tier) => {
+      if (tier.rating !== undefined) commit(tier.rating);
+    },
+    ratings,
+    retention,
+    title: t('view.menu.rating'),
+    adjusterLabel: t('tuning.retention.label'),
+    decreaseLabel: t('tuning.retention.decrease'),
+    increaseLabel: t('tuning.retention.increase'),
+    closeLabel: t('tuning.close'),
+    onClose: anchor.cleanup,
+  });
 }
 
 /**

@@ -3,6 +3,7 @@ import {
   PluginSettingTab,
   requireApiVersion,
   Setting,
+  type SettingControl,
   type SettingDefinitionItem,
 } from 'obsidian';
 import IntelliScrollPlugin from './main';
@@ -13,7 +14,10 @@ import {
   allowsStandaloneFiles,
   defaultLibrary,
   fileTypesAllowingStandalone,
+  fsrsRetentionWindow,
+  normalizeIntervalUnit,
   normalizeRule,
+  retentionBounds,
 } from './presets';
 import {
   buildPresetSettings,
@@ -21,7 +25,17 @@ import {
   writePresetControl,
 } from './presetSettings';
 import { setLanguage, t } from './i18n';
+import { describeThresholds, thresholdsFor } from './grading';
 import {
+  INTERVAL_UNITS,
+  RETENTION_STEP,
+  formatRetention,
+} from './format';
+import type { RetentionWindow } from './tiers';
+import {
+  TIER_COUNTS,
+  TOP_GAP_DAYS_MAX,
+  TOP_GAP_DAYS_MIN,
   isAlgorithmId,
   isGradingMode,
   isLanguage,
@@ -30,6 +44,8 @@ import {
   isSensitivity,
   normalizeMaximumInterval,
   normalizeRetention,
+  normalizeTierCount,
+  normalizeTopGapDays,
   type AlgorithmPreset,
   type DisplayPreset,
   type FilterPreset,
@@ -111,10 +127,15 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
       },
       // Everything from Presets down — the preset selectors, their values, their
       // modes and their manage rows — is emitted by the preset manager module,
-      // so a group's controls stay together and in one place to edit.
-      ...buildPresetSettings(this.plugin, () => {
-        this.refreshDeclarativeSettings();
-      }),
+      // so a group's controls stay together and in one place to edit. The
+      // tuning pass below interleaves the new scheduling/display knobs into
+      // those groups rather than bolting a second copy of them on at the end.
+      ...withTuning(
+        this.plugin,
+        buildPresetSettings(this.plugin, () => {
+          this.refreshDeclarativeSettings();
+        })
+      ),
     ];
   }
 
@@ -167,6 +188,8 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
       reduceAnimations: display.reduceAnimations,
       previewSize: display.previewSize,
       openNoteBehavior: display.openNoteBehavior,
+      intervalUnit: display.intervalUnit,
+      tierCount: display.tierCount,
       excludeFolders: filter.folders.values,
       excludeTags: filter.tags.values,
       excludeGlobs: filter.globs.values,
@@ -177,6 +200,8 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
       algorithm: algorithm.algorithm,
       gradingMode: algorithm.gradingMode,
       sensitivity: algorithm.sensitivity,
+      sensitivityThresholds: algorithm.sensitivityThresholds,
+      topGapDays: algorithm.topGapDays,
       fsrsTunables: algorithm.fsrsTunables,
     };
   }
@@ -208,6 +233,10 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         return settings.searchQuery;
       case 'openNoteBehavior':
         return settings.openNoteBehavior;
+      case 'intervalUnit':
+        return settings.intervalUnit;
+      case 'tierCount':
+        return String(settings.tierCount);
       case 'excludeTags':
         return settings.excludeTags.join('\n');
       case 'excludeGlobs':
@@ -224,6 +253,18 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         return settings.gradingMode;
       case 'sensitivity':
         return settings.sensitivity;
+      case 'sensitivityCustomOpenedOnly':
+        return thresholdsFor(
+          settings.sensitivity,
+          settings.sensitivityThresholds
+        ).openedOnly;
+      case 'sensitivityCustomEngagedMs':
+        return thresholdsFor(
+          settings.sensitivity,
+          settings.sensitivityThresholds
+        ).engagedMs;
+      case 'topGapDays':
+        return settings.topGapDays;
       case 'requestRetention':
         return settings.fsrsTunables.requestRetention;
       case 'maximumInterval':
@@ -311,6 +352,12 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         if (value !== 'tab' && value !== 'reuse' && value !== 'window') return;
         display.openNoteBehavior = value;
         break;
+      case 'intervalUnit':
+        display.intervalUnit = normalizeIntervalUnit(value);
+        break;
+      case 'tierCount':
+        display.tierCount = normalizeTierCount(Number(value));
+        break;
       case 'excludeTags':
         if (typeof value !== 'string') return;
         filter.tags = normalizeRule({
@@ -348,6 +395,28 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
       case 'sensitivity':
         if (!isSensitivity(value)) return;
         algorithm.sensitivity = value;
+        break;
+      case 'sensitivityCustomOpenedOnly': {
+        if (typeof value !== 'boolean') return;
+        const current = thresholdsFor(
+          algorithm.sensitivity,
+          algorithm.sensitivityThresholds
+        );
+        algorithm.sensitivityThresholds = { ...current, openedOnly: value };
+        break;
+      }
+      case 'sensitivityCustomEngagedMs': {
+        const engagedMs = Number(value);
+        if (!Number.isFinite(engagedMs) || engagedMs < 0) return;
+        const current = thresholdsFor(
+          algorithm.sensitivity,
+          algorithm.sensitivityThresholds
+        );
+        algorithm.sensitivityThresholds = { ...current, engagedMs };
+        break;
+      }
+      case 'topGapDays':
+        algorithm.topGapDays = normalizeTopGapDays(value);
         break;
       case 'requestRetention':
         algorithm.fsrsTunables = {
@@ -427,13 +496,302 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
    *
    * It used to hold a full second implementation of every setting, which had
    * to be updated by hand alongside the declarative one — every setting was
-   * written twice and the two drifted. If the floor is ever lowered again,
-   * recover it from git history rather than rebuilding it from memory.
+   * written twice and the two drifted. The tuning controls added since
+   * (sensitivity thresholds, the retention window, top gap, interval unit,
+   * tier count) are declarative-only for the same reason: there is no
+   * reachable legacy path to render them on. If the floor is ever lowered
+   * again, recover the old implementation from git history rather than
+   * rebuilding it from memory — and port the tuning controls then too.
    */
   display(): void {
     // Intentionally empty. See above.
   }
 
+}
+
+// ─── Tuning controls ───────────────────────────────────────────────────────
+//
+// The scheduling and display knobs the owner asked to expose. They are woven
+// into the preset-manager output instead of appended as a second section, so
+// the retention control replaces the preset manager's hardcoded slider and the
+// custom sensitivity controls sit under the sensitivity dropdown they belong to.
+
+type ControlItem = Extract<SettingDefinitionItem, { control: SettingControl }>;
+
+/** Narrow an item to one that carries a control, for key-based replacement. */
+function isControlItem(item: SettingDefinitionItem): item is ControlItem {
+  return 'control' in item && item.control !== undefined;
+}
+
+/** The control's key, or null for items that carry no control. */
+function controlKey(item: SettingDefinitionItem): string | null {
+  return isControlItem(item) ? item.control.key : null;
+}
+
+/**
+ * Cache the retention window by the inputs that determine it.
+ *
+ * The scan is cheap (~10ms) but runs on every render, and `update()` fires on
+ * every save; caching keeps a slider drag from re-scanning per keystroke. The
+ * cap stops a long experimentation session from leaking entries.
+ */
+const retentionWindowCache = new Map<string, RetentionWindow | null>();
+const RETENTION_WINDOW_CACHE_MAX = 32;
+
+function retentionWindowFor(plugin: IntelliScrollPlugin): RetentionWindow | null {
+  const algorithm = plugin.getEffectiveAlgorithm();
+  const display = plugin.getEffectiveDisplay();
+  const key = [
+    algorithm.fsrsTunables.maximumInterval,
+    algorithm.topGapDays,
+    display.tierCount,
+  ].join('|');
+
+  const cached = retentionWindowCache.get(key);
+  if (cached !== undefined || retentionWindowCache.has(key)) {
+    return retentionWindowCache.get(key) ?? null;
+  }
+
+  const window = fsrsRetentionWindow(
+    algorithm.fsrsTunables,
+    algorithm.topGapDays,
+    display.tierCount
+  );
+  if (retentionWindowCache.size >= RETENTION_WINDOW_CACHE_MAX) {
+    retentionWindowCache.clear();
+  }
+  retentionWindowCache.set(key, window);
+  return window;
+}
+
+/** Format a millisecond threshold. UI-only, so it stays out of the pure modules. */
+function formatMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '0 s';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${trimNumber(seconds)} s`;
+  const minutes = seconds / 60;
+  if (minutes < 60) return `${trimNumber(minutes)} min`;
+  return `${trimNumber(minutes / 60)} h`;
+}
+
+function trimNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+/**
+ * The pieces that turn the preset manager's output into the full tuning UI.
+ *
+ * The declarative API keys controls by name, so the retention control has to
+ * replace the preset manager's `requestRetention` item rather than be added
+ * beside it — a second control with the same key would fight the first. The
+ * same pass extends the sensitivity dropdown with `custom` and drops the
+ * threshold editors in behind it.
+ */
+function withTuning(
+  plugin: IntelliScrollPlugin,
+  items: SettingDefinitionItem[]
+): SettingDefinitionItem[] {
+  const out: SettingDefinitionItem[] = [];
+
+  for (const item of items) {
+    const key = controlKey(item);
+
+    if (key === 'sensitivity' && isControlItem(item)) {
+      out.push(withCustomSensitivity(item, plugin));
+      out.push(...customSensitivityItems(plugin));
+      continue;
+    }
+    if (key === 'requestRetention') {
+      out.push(retentionItem(plugin));
+      continue;
+    }
+
+    out.push(item);
+    if (key === 'maximumInterval') out.push(topGapDaysItem());
+    if (key === 'previewSize') out.push(intervalUnitItem());
+    if (key === 'openNoteBehavior') out.push(tierCountItem());
+    if (key === 'reduceAnimations') out.push(readPromptItem());
+  }
+
+  return out;
+}
+
+/**
+ * Add `custom` to the sensitivity dropdown and spell out what the active
+ * preset actually demands.
+ *
+ * The thresholds are data, not branches, precisely so the page can show them —
+ * a preset the user cannot inspect is a setting they cannot reason about.
+ * `describeThresholds` renders the wording; `formatMs` supplies the units.
+ */
+function withCustomSensitivity(
+  item: ControlItem,
+  plugin: IntelliScrollPlugin
+): ControlItem {
+  const control = item.control;
+  if (control.type !== 'dropdown') return item;
+
+  const algorithm = plugin.getEffectiveAlgorithm();
+  const detail = describeThresholds(
+    thresholdsFor(algorithm.sensitivity, algorithm.sensitivityThresholds),
+    formatMs
+  );
+  const baseDesc =
+    typeof item.desc === 'string'
+      ? item.desc
+      : t('settings.sensitivity.desc');
+
+  return {
+    ...item,
+    desc: `${baseDesc} ${t('settings.sensitivity.effective', { detail })}`,
+    control: {
+      ...control,
+      options: {
+        ...control.options,
+        custom: t('settings.sensitivity.option.custom'),
+      },
+    },
+  };
+}
+
+/**
+ * The two editable thresholds, shown only for `custom`.
+ *
+ * The dwell control is hidden while "opened only" is on because the grader
+ * ignores dwell entirely in that mode — leaving an editable number that does
+ * nothing would be worse than omitting it.
+ */
+function customSensitivityItems(
+  plugin: IntelliScrollPlugin
+): SettingDefinitionItem[] {
+  const algorithm = plugin.getEffectiveAlgorithm();
+  if (algorithm.sensitivity !== 'custom') return [];
+
+  const thresholds = thresholdsFor('custom', algorithm.sensitivityThresholds);
+
+  return [
+    {
+      name: t('settings.sensitivity.custom.openedOnly.name'),
+      desc: t('settings.sensitivity.custom.openedOnly.desc'),
+      control: { type: 'toggle', key: 'sensitivityCustomOpenedOnly' },
+    },
+    {
+      name: t('settings.sensitivity.custom.engagedMs.name'),
+      desc: t('settings.sensitivity.custom.engagedMs.desc'),
+      visible: !thresholds.openedOnly,
+      control: {
+        type: 'number',
+        key: 'sensitivityCustomEngagedMs',
+        min: 0,
+        step: 500,
+      },
+    },
+  ];
+}
+
+/**
+ * The retention control, bounded by the top-gap rule.
+ *
+ * The bounds come from `retentionBounds`, which falls back to the global range
+ * when the rule admits nothing — a control with no valid range would lock the
+ * user out. When the rule does produce a window, the row says so, and says when
+ * the saved value sits outside it.
+ */
+function retentionItem(plugin: IntelliScrollPlugin): ControlItem {
+  const algorithm = plugin.getEffectiveAlgorithm();
+  const current = algorithm.fsrsTunables.requestRetention;
+  const window = retentionWindowFor(plugin);
+  const bounds = retentionBounds(window, current);
+
+  const description = [t('settings.requestRetention.desc')];
+  if (window) {
+    description.push(
+      t('settings.requestRetention.window', {
+        min: formatRetention(window.min),
+        max: formatRetention(window.max),
+        gap: String(algorithm.topGapDays),
+      })
+    );
+    if (bounds.outside) description.push(t('settings.requestRetention.outside'));
+  } else {
+    // No window exists at this maximum interval and top gap. Say so rather
+    // than present a range that looks rule-derived but is not.
+    description.push(
+      t('settings.requestRetention.windowFallback', {
+        gap: String(algorithm.topGapDays),
+      })
+    );
+  }
+
+  return {
+    name: t('settings.requestRetention.name'),
+    desc: description.join(' '),
+    control: {
+      type: 'slider',
+      key: 'requestRetention',
+      min: bounds.min,
+      max: bounds.max,
+      step: RETENTION_STEP,
+      displayFormat: (value: number) => formatRetention(value),
+    },
+  };
+}
+
+function topGapDaysItem(): SettingDefinitionItem {
+  return {
+    name: t('settings.topGapDays.name'),
+    desc: t('settings.topGapDays.desc'),
+    control: {
+      type: 'number',
+      key: 'topGapDays',
+      min: TOP_GAP_DAYS_MIN,
+      max: TOP_GAP_DAYS_MAX,
+      step: 1,
+    },
+  };
+}
+
+function intervalUnitItem(): SettingDefinitionItem {
+  const options: Record<string, string> = {};
+  for (const unit of INTERVAL_UNITS) {
+    options[unit] = t(`settings.intervalUnit.option.${unit}`);
+  }
+  return {
+    name: t('settings.intervalUnit.name'),
+    desc: t('settings.intervalUnit.desc'),
+    control: { type: 'dropdown', key: 'intervalUnit', options },
+  };
+}
+
+function tierCountItem(): SettingDefinitionItem {
+  const options: Record<string, string> = {};
+  for (const count of TIER_COUNTS) {
+    options[String(count)] = t('settings.tierCount.option', {
+      count: String(count),
+    });
+  }
+  return {
+    name: t('settings.tierCount.name'),
+    desc: t('settings.tierCount.desc'),
+    control: { type: 'dropdown', key: 'tierCount', options },
+  };
+}
+
+/**
+ * The opt-in "offer the ratings once a note has been read" toggle.
+ *
+ * It lives with the display settings because it is about how the floating
+ * control behaves, not about what gets scheduled. Default off: the prompt
+ * expands under the reader's cursor, so turning it on is a choice they make,
+ * never something an upgrade does to them.
+ */
+function readPromptItem(): SettingDefinitionItem {
+  return {
+    name: t('settings.promptRatingAfterRead.name'),
+    desc: t('settings.promptRatingAfterRead.desc'),
+    control: { type: 'toggle', key: 'promptRatingAfterRead' },
+  };
 }
 
 function configureHeader(setting: Setting): void {

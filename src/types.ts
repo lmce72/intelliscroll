@@ -1,3 +1,5 @@
+import type { IntervalUnit } from './format.ts';
+
 export type OpenNoteBehavior = 'tab' | 'reuse' | 'window';
 export type PreviewSize = 'small' | 'medium' | 'large';
 
@@ -7,7 +9,22 @@ export type PreviewSize = 'small' | 'medium' | 'large';
 
 export type AlgorithmId = 'off' | 'fsrs' | 'sm2' | 'leitner';
 export type GradingMode = 'auto' | 'hybrid' | 'manual';
-export type Sensitivity = 'conservative' | 'medium' | 'aggressive';
+export type Sensitivity = 'conservative' | 'medium' | 'aggressive' | 'custom';
+
+/**
+ * What a sensitivity setting demands before a showing counts as engagement.
+ *
+ * Kept as plain data (rather than branches inside the grader) so the settings
+ * page can display what a preset actually does, and so a user can supply their
+ * own numbers for `custom`. The grader still only ever emits `good` — these
+ * thresholds decide *whether* a review happened, never its quality.
+ */
+export interface SensitivityThresholds {
+  /** When true, only opening the note counts; dwell is ignored entirely. */
+  openedOnly: boolean;
+  /** Dwell at or above this many ms counts as read. Ignored when openedOnly. */
+  engagedMs: number;
+}
 
 // The four FSRS ratings, reused as the vocabulary for every algorithm.
 // IMPORTANT: automatic grading may only ever produce 'good'. Behaviour is
@@ -31,6 +48,11 @@ export const SENSITIVITIES: readonly Sensitivity[] = [
   'conservative',
   'medium',
   'aggressive',
+];
+/** Every value the setting may hold, presets first. */
+export const SENSITIVITY_OPTIONS: readonly Sensitivity[] = [
+  ...SENSITIVITIES,
+  'custom',
 ];
 
 /**
@@ -59,6 +81,48 @@ export const REQUEST_RETENTION_MIN = 0.7;
 export const REQUEST_RETENTION_MAX = 0.97;
 export const MAXIMUM_INTERVAL_MIN = 1;
 export const MAXIMUM_INTERVAL_MAX = 3650;
+
+// ─── Tuning bounds ─────────────────────────────────────────────────────────
+// The retention control is not bounded by these directly: its range is derived
+// at runtime from the maximum interval and the top-gap rule (see
+// `fsrsRetentionWindow`). These are only the outer envelope the rule is scanned
+// within and the fallback when no window exists.
+
+/**
+ * Minimum days the second-highest ladder tier must sit below the highest.
+ *
+ * Zero would make the rule vacuous (every gap is at least zero), so the range
+ * starts at one: a rule that cannot exclude anything is not a rule.
+ */
+export const TOP_GAP_DAYS_MIN = 1;
+export const TOP_GAP_DAYS_MAX = 30;
+export const DEFAULT_TOP_GAP_DAYS = 2;
+
+/** Ladder lengths the user may choose between. */
+export const TIER_COUNTS: readonly number[] = [4, 8];
+export const DEFAULT_TIER_COUNT = 4;
+
+/** Clamp a top-gap setting into range, falling back when unusable. */
+export function normalizeTopGapDays(value: unknown): number {
+  // `Number(null)` and `Number('')` are both 0, which would silently pin the
+  // rule to its minimum instead of falling back; an unset field is not a
+  // deliberate zero.
+  if (value === null || value === undefined || value === '') {
+    return DEFAULT_TOP_GAP_DAYS;
+  }
+  const numeric = Math.round(Number(value));
+  if (!Number.isFinite(numeric)) return DEFAULT_TOP_GAP_DAYS;
+  return Math.min(TOP_GAP_DAYS_MAX, Math.max(TOP_GAP_DAYS_MIN, numeric));
+}
+
+export function isTierCount(value: unknown): value is number {
+  return typeof value === 'number' && TIER_COUNTS.includes(value);
+}
+
+/** Keep a tier count to one of the offered lengths, falling back when unusable. */
+export function normalizeTierCount(value: unknown): number {
+  return isTierCount(value) ? value : DEFAULT_TIER_COUNT;
+}
 
 // ─── Presets ───────────────────────────────────────────────────────────────
 // Configuration is stored as named presets rather than flat settings, so a
@@ -132,6 +196,21 @@ export interface AlgorithmPreset {
   algorithm: AlgorithmId;
   gradingMode: GradingMode;
   sensitivity: Sensitivity;
+  /**
+   * Numbers backing `sensitivity: 'custom'`; ignored by the presets. Optional
+   * because a preset that never chooses `custom` has nothing to carry, and an
+   * absent or malformed value falls back to the medium preset rather than
+   * breaking scheduling.
+   */
+  sensitivityThresholds?: SensitivityThresholds;
+  /**
+   * Minimum days the second-highest ladder tier must sit below the highest.
+   *
+   * Scheduling, not presentation: it decides which retention values are
+   * admissible (see `fsrsRetentionWindow`), and the whole point of the setting
+   * is to keep adjacent ratings from collapsing into the same interval.
+   */
+  topGapDays: number;
   fsrsTunables: FsrsTunables;
 }
 
@@ -142,6 +221,22 @@ export interface DisplayPreset {
   reduceAnimations: boolean;
   previewSize: PreviewSize;
   openNoteBehavior: OpenNoteBehavior;
+  /**
+   * Unit the intervals are shown in. Presentation only: the scheduler always
+   * works in days, and this only changes how a day count is read out.
+   */
+  intervalUnit: IntervalUnit;
+  /** How many rungs the displayed ladder expands to. Presentation only. */
+  tierCount: number;
+  /**
+   * Offer the ratings in the floating control once a note reached from the
+   * feed has actually been read.
+   *
+   * Off by default. Expanding while someone is still reading is an
+   * interruption, and a feature meant to help capture a rating must not become
+   * something that nags.
+   */
+  promptRatingAfterRead: boolean;
   frontmatterImageProps: string[];
   frontmatterBeforeProps: string[];
   frontmatterAfterProps: string[];
@@ -330,7 +425,8 @@ export function isSensitivity(value: unknown): value is Sensitivity {
   return (
     value === 'conservative' ||
     value === 'medium' ||
-    value === 'aggressive'
+    value === 'aggressive' ||
+    value === 'custom'
   );
 }
 

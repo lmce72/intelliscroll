@@ -1,21 +1,34 @@
 import {
+  DEFAULT_TIER_COUNT,
+  DEFAULT_TOP_GAP_DAYS,
   FSRS_DEFAULT_TUNABLES,
   FILE_CATEGORIES,
+  REQUEST_RETENTION_MAX,
+  REQUEST_RETENTION_MIN,
   isAlgorithmPreset,
   isDisplayPreset,
   isFilterPreset,
   isTotalPreset,
+  normalizeTierCount,
+  normalizeTopGapDays,
   type AlgorithmPreset,
   type DisplayPreset,
   type FileCategory,
   type FilterPreset,
   type FilterableKind,
   type FilterRule,
+  type FsrsTunables,
+  type NoteSrsState,
   type PluginSettings,
   type PresetLibrary,
   type RuleMode,
+  type SensitivityThresholds,
   type TotalPreset,
 } from './types.ts';
+import { INTERVAL_UNITS, type IntervalUnit } from './format.ts';
+import { thresholdsFor } from './grading.ts';
+import { getAlgorithm } from './algorithms/index.ts';
+import { expandTiers, retentionWindow, type RetentionWindow } from './tiers.ts';
 
 /**
  * Pure operations over the preset library.
@@ -113,6 +126,7 @@ export function defaultAlgorithmPreset(
     algorithm: 'off',
     gradingMode: 'hybrid',
     sensitivity: 'medium',
+    topGapDays: DEFAULT_TOP_GAP_DAYS,
     fsrsTunables: { ...FSRS_DEFAULT_TUNABLES },
   };
 }
@@ -128,6 +142,9 @@ export function defaultDisplayPreset(
     reduceAnimations: false,
     previewSize: 'medium',
     openNoteBehavior: 'tab',
+    intervalUnit: 'days',
+    tierCount: DEFAULT_TIER_COUNT,
+    promptRatingAfterRead: false,
     frontmatterImageProps: ['cover', 'image', 'banner'],
     frontmatterBeforeProps: [],
     frontmatterAfterProps: [],
@@ -296,6 +313,11 @@ export function ensureLibrary(input: unknown): PresetLibrary {
     });
   }
 
+  // Fields added after a preset was written are absent on disk; give them their
+  // defaults before anything reads them, rather than making every consumer
+  // guard against undefined.
+  backfillPresetDefaults(library);
+
   return library;
 }
 
@@ -323,6 +345,178 @@ export function normalizeFileTypes(
     rule.values.includes(category)
   );
   return { mode: rule.mode, values: [...values] };
+}
+
+// ─── Tuning: interval display and the retention rule ─────────────────────────
+//
+// The scheduling knobs the settings page exposes. Kept here with the preset
+// operations because they are all functions of a preset: the unit and tier
+// count come from the display preset, the retention window from the algorithm
+// preset. Everything here is pure so the fallbacks can be tested without a
+// settings tab or an Obsidian runtime.
+
+/** Keep an interval unit to one of the offered values. */
+export function isIntervalUnit(value: unknown): value is IntervalUnit {
+  return (
+    typeof value === 'string' && INTERVAL_UNITS.some((unit) => unit === value)
+  );
+}
+
+export function normalizeIntervalUnit(value: unknown): IntervalUnit {
+  return isIntervalUnit(value) ? value : 'days';
+}
+
+/**
+ * Replace a stored custom-threshold pair with one safe to compare against.
+ *
+ * Built on `thresholdsFor`, which already falls back to the medium preset for
+ * anything malformed; the spread matters because that fallback may be the
+ * shared medium object, which must not be handed out for mutation.
+ */
+export function normalizeSensitivityThresholds(
+  value: unknown
+): SensitivityThresholds {
+  const sanitized = thresholdsFor(
+    'custom',
+    value as SensitivityThresholds | undefined
+  );
+  return { ...sanitized };
+}
+
+/** How many times the reference note is reviewed before the ladder is read. */
+const REFERENCE_REVIEWS = 3;
+/** Fixed origin, so the window is a pure function of the tunables. */
+const REFERENCE_EPOCH = Date.UTC(2024, 0, 1, 12);
+/** Scan resolution for the window; finer than the control's own step is waste. */
+const WINDOW_SCAN_STEP = 0.0005;
+
+/**
+ * The tier intervals a note would show after being reviewed three times with
+ * Good — the reference the retention rule is measured against.
+ *
+ * The three reviews are taken *when each falls due*, not back to back. Reviewing
+ * them all at one instant gives FSRS an elapsed time of zero and the card never
+ * grows enough to reach the interval cap, which would make the whole rule
+ * meaningless. This mirrors what a settled note actually experiences.
+ */
+export function referenceTierIntervals(
+  tunables: FsrsTunables,
+  tierCount: number
+): number[] {
+  const algorithm = getAlgorithm('fsrs');
+  // Fuzz is forced off so the scan compares a deterministic ladder: two
+  // samples differing only in retention must differ only because of retention.
+  const fsrs: FsrsTunables = { ...tunables, enableFuzz: false };
+
+  let state: NoteSrsState | null = null;
+  let now = REFERENCE_EPOCH;
+  for (let i = 0; i < REFERENCE_REVIEWS; i++) {
+    state = algorithm.review(state, 'good', { now, hash: 'reference', fsrs });
+    now = state.due;
+  }
+
+  const steps = algorithm.ladder(state, { now, hash: 'reference', fsrs });
+  return expandTiers(steps, tierCount).map((tier) => tier.intervalDays);
+}
+
+/**
+ * The retention range for which the reference note's top two tiers stay at
+ * least `topGapDays` apart, or null when no value in range qualifies.
+ *
+ * This is the rule the user asked for: derive the bound from the maximum
+ * interval plus the requirement on the second-highest tier. Because the top
+ * tier stops being clamped partway up and the whole ladder is squeezed near the
+ * ceiling, the qualifying values form a window rather than a floor.
+ */
+export function fsrsRetentionWindow(
+  tunables: FsrsTunables,
+  topGapDays: number,
+  tierCount: number
+): RetentionWindow | null {
+  const base: FsrsTunables = { ...tunables, enableFuzz: false };
+  return retentionWindow(
+    (retention) =>
+      referenceTierIntervals(
+        { ...base, requestRetention: retention },
+        tierCount
+      ),
+    {
+      min: REQUEST_RETENTION_MIN,
+      max: REQUEST_RETENTION_MAX,
+      topGapDays,
+      step: WINDOW_SCAN_STEP,
+    }
+  );
+}
+
+export interface RetentionBounds {
+  min: number;
+  max: number;
+  /** True when no window exists and the global range was used instead. */
+  fellBack: boolean;
+  /** True when the stored value sits outside the rule's window. */
+  outside: boolean;
+}
+
+/**
+ * The range a retention control may offer.
+ *
+ * With no window the global bounds are the honest fallback — refusing to render
+ * a range would silently lock the user out of the control entirely. When a
+ * window exists the stored value is still admitted into the range (widening it
+ * if necessary) so the control can represent what is actually saved; clamping
+ * it instead would show a value the scheduler is not using, which is a lying
+ * control. `outside` lets the caller say so in the row's description.
+ */
+export function retentionBounds(
+  window: RetentionWindow | null,
+  current: number
+): RetentionBounds {
+  const value = Number.isFinite(current)
+    ? current
+    : FSRS_DEFAULT_TUNABLES.requestRetention;
+
+  if (!window) {
+    return {
+      min: REQUEST_RETENTION_MIN,
+      max: REQUEST_RETENTION_MAX,
+      fellBack: true,
+      outside: false,
+    };
+  }
+
+  return {
+    min: Math.min(window.min, value),
+    max: Math.max(window.max, value),
+    fellBack: false,
+    outside: value < window.min || value > window.max,
+  };
+}
+
+/**
+ * Bring a library's tuning fields into range.
+ *
+ * Called from `ensureLibrary` so every path that materialises a library —
+ * loading, importing, repairing a hand-edited file — gets the same treatment.
+ * Idempotent, so the load-time pass in `main.ts` can call it again.
+ */
+export function backfillPresetDefaults(library: PresetLibrary): void {
+  for (const preset of library.algorithms) {
+    preset.topGapDays = normalizeTopGapDays(preset.topGapDays);
+    if (preset.sensitivityThresholds !== undefined) {
+      preset.sensitivityThresholds = normalizeSensitivityThresholds(
+        preset.sensitivityThresholds
+      );
+    }
+  }
+  for (const preset of library.displays) {
+    preset.intervalUnit = normalizeIntervalUnit(preset.intervalUnit);
+    preset.tierCount = normalizeTierCount(preset.tierCount);
+    // Anything that is not an explicit `true` means off. The read prompt
+    // interrupts someone who is reading, so an unreadable value must fail
+    // closed rather than switch it on.
+    preset.promptRatingAfterRead = preset.promptRatingAfterRead === true;
+  }
 }
 
 // ─── Cloning (copy-on-inherit) ─────────────────────────────────────────────
