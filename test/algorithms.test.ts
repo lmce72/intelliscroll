@@ -105,7 +105,14 @@ test('Leitner never advances past its last box', () => {
 // ─── FSRS ──────────────────────────────────────────────────────────────────
 
 test('FSRS grows the interval with successive successful reviews', () => {
-  const states = ladder('fsrs', ['good', 'good', 'good', 'good']);
+  // An explicit high ceiling, so this tests growth rather than the cap. The
+  // default cap is 30 days and would otherwise flatten the ladder — which is
+  // correct behaviour, and covered by its own test below.
+  const states = ladder('fsrs', ['good', 'good', 'good', 'good'], {
+    ...FSRS_DEFAULT_TUNABLES,
+    enableFuzz: false,
+    maximumInterval: 3650,
+  });
   const intervals = states.map((state, index) =>
     dueInDays(state, index === 0 ? NOW : states[index - 1]!.due)
   );

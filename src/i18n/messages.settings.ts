@@ -116,7 +116,7 @@ export const messages: MessageModule = {
 
     'settings.maximumInterval.name': 'Maximum interval',
     'settings.maximumInterval.desc':
-      'Longest gap in days before a note is shown again',
+      'Longest gap in days before a note is shown again. Defaults to 30; raise it to let well-known notes go longer.',
 
     'settings.enableFuzz.name': 'Fuzz due dates',
     'settings.enableFuzz.desc':
@@ -222,7 +222,7 @@ export const messages: MessageModule = {
       '笔记再次出现时仍记得的目标概率。数值越高，间隔越短、复习次数越多；0.85-0.90 适合大多数人。',
 
     'settings.maximumInterval.name': '最大间隔',
-    'settings.maximumInterval.desc': '笔记再次出现前的最长间隔天数',
+    'settings.maximumInterval.desc': '笔记再次出现前的最长间隔天数。默认 30 天；调高后已熟的笔记可以隔得更久。',
 
     'settings.enableFuzz.name': '到期日模糊化',
     'settings.enableFuzz.desc': '略微分散到期日，避免所有笔记都在同一天回来',

@@ -51,7 +51,7 @@ export interface FsrsTunables {
 
 export const FSRS_DEFAULT_TUNABLES: FsrsTunables = {
   requestRetention: 0.9,
-  maximumInterval: 365,
+  maximumInterval: 30,
   enableFuzz: true,
 };
 

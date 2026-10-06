@@ -1,6 +1,9 @@
 import { Plugin } from 'obsidian';
 import {
+  FSRS_DEFAULT_TUNABLES,
   isLanguage,
+  normalizeMaximumInterval,
+  normalizeRetention,
   type AlgorithmPreset,
   type DisplayPreset,
   type FilterPreset,
@@ -26,6 +29,9 @@ import { SrsStore, logSrsError } from './srsLog';
 import { IntelliScrollView, VIEW_TYPE_INTELLISCROLL } from './view';
 
 const INDEX_FORMAT_VERSION = 3;
+
+/** What this plugin used to ship as the interval cap, before it was lowered. */
+const PREVIOUS_DEFAULT_MAXIMUM_INTERVAL = 365;
 
 export default class IntelliScrollPlugin extends Plugin {
   data!: PluginData;
@@ -109,6 +115,35 @@ export default class IntelliScrollPlugin extends Plugin {
       hadPresets ? loadedSettings.presets : libraryFromUnknownLegacy(loadedSettings)
     );
     if (!hadPresets) migrated = true;
+
+    // Bring stored FSRS tunables into range. This also moves the old default
+    // cap of a year down to the current default: nobody chose 365, it was what
+    // this plugin shipped with, so it should follow the default rather than
+    // persist forever. Any other value is a deliberate setting and is kept —
+    // the cap remains settable well above the default.
+    let tunablesChanged = false;
+    for (const preset of presets.algorithms) {
+      const current = preset.fsrsTunables;
+      const requestRetention = normalizeRetention(current.requestRetention);
+      const maximumInterval =
+        current.maximumInterval === PREVIOUS_DEFAULT_MAXIMUM_INTERVAL
+          ? FSRS_DEFAULT_TUNABLES.maximumInterval
+          : normalizeMaximumInterval(current.maximumInterval);
+      const enableFuzz =
+        typeof current.enableFuzz === 'boolean'
+          ? current.enableFuzz
+          : FSRS_DEFAULT_TUNABLES.enableFuzz;
+
+      if (
+        requestRetention !== current.requestRetention ||
+        maximumInterval !== current.maximumInterval ||
+        enableFuzz !== current.enableFuzz
+      ) {
+        preset.fsrsTunables = { requestRetention, maximumInterval, enableFuzz };
+        tunablesChanged = true;
+      }
+    }
+    if (tunablesChanged) migrated = true;
 
     const activeIds = resolveActiveIds(presets, loadedSettings);
     // A fresh migration lands on the "Default" preset in every group, so the
