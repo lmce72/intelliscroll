@@ -27,6 +27,9 @@ export const messages: MessageModule = {
     'tuning.interval.hours': '{value} hours',
     'tuning.interval.minute': '{value} minute',
     'tuning.interval.minutes': '{value} minutes',
+    // Shown only when the model's interval and the interval a press would
+    // commit round differently, so neither number is passed off as the other.
+    'tuning.interval.committed': '{model} (schedules {committed})',
   },
   zh: {
     'tuning.tier.interpolated': '第 {tier} 档',
@@ -42,5 +45,6 @@ export const messages: MessageModule = {
     'tuning.interval.hours': '{value} 小时',
     'tuning.interval.minute': '{value} 分钟',
     'tuning.interval.minutes': '{value} 分钟',
+    'tuning.interval.committed': '{model}（实际提交 {committed}）',
   },
 };

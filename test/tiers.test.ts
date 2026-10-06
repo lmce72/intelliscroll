@@ -3,6 +3,9 @@ import test from 'node:test';
 import { DAY_MS, getAlgorithm } from '../src/algorithms/index.ts';
 import type { LadderStep } from '../src/algorithms/index.ts';
 import { expandTiers, retentionWindow } from '../src/tiers.ts';
+import type { Tier } from '../src/tiers.ts';
+import { formatTierInterval } from '../src/tierDisplay.ts';
+
 import { FSRS_DEFAULT_TUNABLES } from '../src/types.ts';
 
 const NOW = Date.UTC(2026, 0, 1);
@@ -355,4 +358,49 @@ test('an inverted or non-finite range yields null', () => {
     }),
     null
   );
+});
+
+// ─── Displayed interval ────────────────────────────────────────────────────
+
+test('a pressable rung states its commitment when the two numbers differ', () => {
+  // The model's interval and the committed one are different quantities: FSRS
+  // rounds to whole days and then pushes each grade past the last. Showing only
+  // the model's value would let a row read "3.8 hours" while pressing it
+  // schedules two days; showing only the committed one makes the retention
+  // control look broken, because sweeping it moves the model tenfold and the
+  // committed numbers not at all. So the model leads and the commitment is
+  // stated whenever it differs.
+  const anchor: Tier = {
+    tier: 1,
+    due: NOW,
+    intervalDays: 2,
+    modelDays: 0.16,
+    rating: 'hard',
+    anchor: true,
+  };
+  const text = formatTierInterval(anchor, 'days');
+
+  // The unit steps down on its own for a sub-day value, so a fifth of a day
+  // reads as hours rather than as "0.2 days".
+  assert.equal(text, '3.8 hours (schedules 2 days)');
+
+  // When the two agree there is one number and nothing extra to read.
+  assert.equal(formatTierInterval({ ...anchor, modelDays: 2 }, 'days'), '2 days');
+});
+
+test('an interpolated rung states no commitment, because it has none', () => {
+  // Interpolated tiers are inert — the popover renders them as rows, not
+  // buttons — so claiming one "schedules" anything would invent a press that
+  // does not exist.
+  const interpolated: Tier = {
+    tier: 2,
+    due: NOW,
+    intervalDays: 5,
+    modelDays: 4.2,
+    anchor: false,
+  };
+  const text = formatTierInterval(interpolated, 'days');
+
+  assert.ok(text.includes('4.2'), `shows the model interval: ${text}`);
+  assert.equal(/commit|schedul|提交/i.test(text), false, `no commitment claim: ${text}`);
 });
