@@ -6,8 +6,15 @@ import {
   type Card,
   type Grade,
 } from 'ts-fsrs';
-import type { FsrsTunables, Rating } from '../types.ts';
-import { makeState, payloadFor, type SchedulerAlgorithm } from './shared.ts';
+import type { FsrsTunables, NoteSrsState, Rating } from '../types.ts';
+import {
+  DAY_MS,
+  ladderFrom,
+  makeState,
+  payloadFor,
+  RATING_ORDER,
+  type SchedulerAlgorithm,
+} from './shared.ts';
 
 /**
  * FSRS-6 via `ts-fsrs`.
@@ -94,6 +101,14 @@ function deserializeCard(
   return card as unknown as Card;
 }
 
+/** The card a review would start from: the stored one, or a fresh card. */
+function cardFor(previous: NoteSrsState | null, now: number): Card {
+  const prior = payloadFor(previous, 'fsrs') as FsrsPayload | null;
+  return prior && prior.card
+    ? deserializeCard(prior.card, now)
+    : createEmptyCard(new Date(now));
+}
+
 export const fsrsAlgorithm: SchedulerAlgorithm = {
   id: 'fsrs',
   label: 'FSRS-6',
@@ -101,14 +116,8 @@ export const fsrsAlgorithm: SchedulerAlgorithm = {
     'Modern forgetting-curve scheduler. Handles irregular review timing best.',
   schedules: true,
   review(previous, rating, ctx) {
-    const prior = payloadFor(previous, 'fsrs') as FsrsPayload | null;
-    const card =
-      prior && prior.card
-        ? deserializeCard(prior.card, ctx.now)
-        : createEmptyCard(new Date(ctx.now));
-
     const { card: next } = schedulerFor(ctx.fsrs).next(
-      card,
+      cardFor(previous, ctx.now),
       new Date(ctx.now),
       RATING_MAP[rating]
     );
@@ -121,5 +130,18 @@ export const fsrsAlgorithm: SchedulerAlgorithm = {
       previous,
       data: { card: serializeCard(next) } satisfies FsrsPayload,
     });
+  },
+  ladder(previous, ctx) {
+    const now = ctx.now;
+    // `repeat()` is what `next()` itself calls, so every step here is by
+    // construction the same value a press would commit.
+    const outcomes = schedulerFor(ctx.fsrs).repeat(cardFor(previous, now), new Date(now));
+
+    return ladderFrom(
+      RATING_ORDER,
+      (rating) =>
+        (outcomes[RATING_MAP[rating]].card.due.getTime() - now) / DAY_MS,
+      now
+    );
   },
 };

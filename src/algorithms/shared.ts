@@ -7,6 +7,21 @@ import type {
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Rating order used by every ladder, ascending by interval.
+ *
+ * For FSRS this is also the library's own grade order. For SM-2 and Leitner it
+ * is the order that *usually* ascends; a scheme can produce ties (SM-2's first
+ * repetition gives every passing grade the same day), and ties are honest — the
+ * ladder keeps the order given here rather than inventing a spread.
+ */
+export const RATING_ORDER: readonly Rating[] = [
+  'again',
+  'hard',
+  'good',
+  'easy',
+];
+
 /** Everything a scheduler needs that isn't the note's own state. */
 export interface ReviewContext {
   /** Epoch ms of the review. */
@@ -15,6 +30,22 @@ export interface ReviewContext {
   hash: string;
   /** FSRS tunables. Only the FSRS algorithm reads these. */
   fsrs: FsrsTunables;
+}
+
+/**
+ * Where one grade would send a note, without committing to it.
+ *
+ * This is a "what if" — the caller asks what each rating would do and shows
+ * the answers. It must not be confused with `review()`, the committed path,
+ * and it must never be used to decide scheduling by itself.
+ */
+export interface LadderStep {
+  /** The algorithm's own grade. Never an interpolated tier. */
+  rating: Rating;
+  /** Epoch ms the note would next be due. */
+  due: number;
+  /** `due - ctx.now` in days. Fractional; callers round for display. */
+  intervalDays: number;
 }
 
 export interface SchedulerAlgorithm {
@@ -39,6 +70,19 @@ export interface SchedulerAlgorithm {
     rating: Rating,
     ctx: ReviewContext
   ): NoteSrsState;
+  /**
+   * Every grade's outcome from the note's current state, ascending by
+   * interval.
+   *
+   * Required to agree with `review()`: for every step,
+   * `review(previous, step.rating, ctx).due` must equal `step.due`. Algorithms
+   * share one internal computation between the two rather than writing the
+   * ladder twice — a preview that disagreed with what a press actually does
+   * would be worse than showing nothing.
+   *
+   * `off` returns an empty list: a shuffled feed has no grades.
+   */
+  ladder(previous: NoteSrsState | null, ctx: ReviewContext): LadderStep[];
 }
 
 /**
@@ -80,6 +124,26 @@ export function makeState(params: {
     // `unengagedAt` is deliberately absent: a real review supersedes the
     // "shown but not engaged" marker.
   };
+}
+
+/**
+ * Build a ladder from a per-rating interval function, sorted into ascending
+ * order.
+ *
+ * The single place a ladder is assembled, so every algorithm is previewed the
+ * same way. `sort` is stable, so ratings that tie keep `RATING_ORDER`.
+ */
+export function ladderFrom(
+  ratings: readonly Rating[],
+  intervalDaysFor: (rating: Rating) => number,
+  now: number
+): LadderStep[] {
+  return ratings
+    .map((rating) => {
+      const intervalDays = intervalDaysFor(rating);
+      return { rating, due: now + intervalDays * DAY_MS, intervalDays };
+    })
+    .sort((a, b) => a.intervalDays - b.intervalDays);
 }
 
 /**

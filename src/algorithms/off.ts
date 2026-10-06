@@ -24,4 +24,8 @@ export const offAlgorithm: SchedulerAlgorithm = {
       data: {},
     });
   },
+  ladder() {
+    // Nothing to preview: with no scheduling, every grade is the same press.
+    return [];
+  },
 };

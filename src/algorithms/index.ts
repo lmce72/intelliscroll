@@ -8,8 +8,11 @@ import type { SchedulerAlgorithm } from './shared.ts';
 export {
   DAY_MS,
   isDue,
+  ladderFrom,
   makeState,
   payloadFor,
+  RATING_ORDER,
+  type LadderStep,
   type ReviewContext,
   type SchedulerAlgorithm,
 } from './shared.ts';

@@ -230,3 +230,104 @@ test('the off algorithm never schedules', () => {
     assert.equal(getAlgorithm(id).schedules, true, `${id} schedules`);
   }
 });
+
+// ─── Ladders ───────────────────────────────────────────────────────────────
+
+test('every ladder step agrees with what the corresponding review commits', () => {
+  // The invariant that makes the ladder safe to show: a previewed interval is
+  // the committed interval, not an approximation of it. Checked at three
+  // maturities so a fresh note and a settled one are both covered.
+  for (const id of ['fsrs', 'sm2', 'leitner'] as const) {
+    const algorithm = getAlgorithm(id);
+    let state: NoteSrsState | null = null;
+    let now = NOW;
+
+    for (let pass = 0; pass < 3; pass++) {
+      const ctx = context({ now });
+      const ladder = algorithm.ladder(state, ctx);
+      assert.ok(ladder.length > 0, `${id}: ladder is non-empty`);
+
+      for (const step of ladder) {
+        assert.equal(
+          algorithm.review(state, step.rating, ctx).due,
+          step.due,
+          `${id} pass ${pass}: ${step.rating} previews what it commits`
+        );
+      }
+
+      state = algorithm.review(state, 'good', ctx);
+      now = state.due;
+    }
+  }
+});
+
+test('a ladder ascends by interval', () => {
+  for (const id of ['fsrs', 'sm2', 'leitner'] as const) {
+    const ladder = getAlgorithm(id).ladder(null, context());
+    for (let i = 1; i < ladder.length; i++) {
+      assert.ok(
+        ladder[i]!.intervalDays >= ladder[i - 1]!.intervalDays,
+        `${id} is ascending: ${JSON.stringify(ladder.map((s) => s.intervalDays))}`
+      );
+    }
+  }
+});
+
+test('the off algorithm has no ladder', () => {
+  // Nothing to preview: with no scheduling, every grade is the same press.
+  assert.deepEqual(getAlgorithm('off').ladder(null, context()), []);
+});
+
+test('SM-2 cannot tell its passing grades apart before the second repetition', () => {
+  // Not a defect to fix — reps === 1 gives every passing grade the same day,
+  // and the ladder reports that honestly rather than inventing a spread.
+  const ladder = getAlgorithm('sm2').ladder(null, context());
+  assert.deepEqual(
+    ladder.map((step) => step.intervalDays),
+    [1, 1, 1, 1]
+  );
+});
+
+test('Leitner previews holding its box on hard and advancing on good', () => {
+  const algorithm = getAlgorithm('leitner');
+  let state = algorithm.review(null, 'good', context());
+  state = algorithm.review(state, 'good', context());
+
+  const ladder = algorithm.ladder(state, context());
+  const byRating = new Map(ladder.map((step) => [step.rating, step.intervalDays]));
+
+  assert.equal(byRating.get('again'), 1, 'a lapse drops to the first box');
+  assert.equal(byRating.get('hard'), 3, 'hard holds the current box');
+  assert.equal(byRating.get('good'), 7, 'good advances one box');
+  assert.equal(byRating.get('easy'), 7, 'the two-grade scheme has nowhere further to go');
+});
+
+test('FSRS applies its cap to hard, then forces good and easy past it', () => {
+  // `ts-fsrs` clamps to maximum_interval and *then* enforces
+  // `good >= hard + 1` and `easy >= good + 1`, so the cap is soft by up to two
+  // days and the top grades are pinned a day apart once it binds. Pinned here
+  // because the interval tuning UI depends on knowing the ceiling it reports
+  // is not the ceiling FSRS enforces.
+  const algorithm = getAlgorithm('fsrs');
+  const ctx = context();
+  let state: NoteSrsState | null = null;
+  let now = NOW;
+  for (let i = 0; i < 4; i++) {
+    state = algorithm.review(state, 'good', context({ now }));
+    now = state.due;
+  }
+
+  const byRating = new Map(
+    algorithm.ladder(state, context({ now })).map((step) => [
+      step.rating,
+      step.intervalDays,
+    ])
+  );
+  const hard = byRating.get('hard')!;
+  const good = byRating.get('good')!;
+  const easy = byRating.get('easy')!;
+
+  assert.equal(hard, ctx.fsrs.maximumInterval, 'hard lands exactly on the cap');
+  assert.equal(good, hard + 1, 'good is pushed one day past it');
+  assert.equal(easy, good + 1, 'easy is pushed one day past good');
+});

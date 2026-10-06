@@ -1,5 +1,12 @@
 import type { Rating } from '../types.ts';
-import { DAY_MS, makeState, payloadFor, type SchedulerAlgorithm } from './shared.ts';
+import {
+  DAY_MS,
+  ladderFrom,
+  makeState,
+  payloadFor,
+  RATING_ORDER,
+  type SchedulerAlgorithm,
+} from './shared.ts';
 
 /**
  * SuperMemo 2 (Wozniak, 1990), implemented as published.
@@ -45,48 +52,57 @@ function qualityFor(rating: Rating): number {
   }
 }
 
+/**
+ * The one computation both `review` and `ladder` go through.
+ *
+ * Kept as a single function rather than duplicated so the previewed interval
+ * and the committed interval cannot drift apart.
+ */
+function outcomeFor(prior: Sm2Payload | null, rating: Rating): Sm2Payload {
+  const ef = prior?.ef ?? INITIAL_EF;
+  const previousInterval = prior?.intervalDays ?? 0;
+  const previousReps = prior?.reps ?? 0;
+
+  const quality = qualityFor(rating);
+
+  if (quality < 3) {
+    // SM-2 restarts the repetition ladder on a failed recall *without*
+    // touching the E-Factor (that is the algorithm's explicit wording).
+    return { ef, intervalDays: 1, reps: 0 };
+  }
+
+  const delta = 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02);
+  const nextEf = Math.max(MIN_EF, ef + delta);
+  const reps = previousReps + 1;
+  const intervalDays =
+    reps === 1 ? 1 : reps === 2 ? 6 : Math.ceil(previousInterval * nextEf);
+
+  return { ef: nextEf, intervalDays, reps };
+}
+
 export const sm2Algorithm: SchedulerAlgorithm = {
   id: 'sm2',
   label: 'SM-2',
   description: 'Classic SuperMemo 2. Simple and transparent, no fitted parameters.',
   schedules: true,
   review(previous, rating, ctx) {
-    const prior = payloadFor(previous, 'sm2') as Sm2Payload | null;
-    const ef = prior?.ef ?? INITIAL_EF;
-    const previousInterval = prior?.intervalDays ?? 0;
-    const previousReps = prior?.reps ?? 0;
-
-    const quality = qualityFor(rating);
-
-    let reps: number;
-    let intervalDays: number;
-    let nextEf = ef;
-
-    if (quality < 3) {
-      // SM-2 restarts the repetition ladder on a failed recall *without*
-      // touching the E-Factor (that is the algorithm's explicit wording).
-      reps = 0;
-      intervalDays = 1;
-    } else {
-      const delta =
-        0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02);
-      nextEf = Math.max(MIN_EF, ef + delta);
-      reps = previousReps + 1;
-      intervalDays =
-        reps === 1
-          ? 1
-          : reps === 2
-            ? 6
-            : Math.ceil(previousInterval * nextEf);
-    }
+    const data = outcomeFor(payloadFor(previous, 'sm2') as Sm2Payload | null, rating);
 
     return makeState({
       algorithm: 'sm2',
-      due: ctx.now + intervalDays * DAY_MS,
+      due: ctx.now + data.intervalDays * DAY_MS,
       now: ctx.now,
       hash: ctx.hash,
       previous,
-      data: { ef: nextEf, intervalDays, reps } satisfies Sm2Payload,
+      data,
     });
+  },
+  ladder(previous, ctx) {
+    const prior = payloadFor(previous, 'sm2') as Sm2Payload | null;
+    return ladderFrom(
+      RATING_ORDER,
+      (rating) => outcomeFor(prior, rating).intervalDays,
+      ctx.now
+    );
   },
 };
