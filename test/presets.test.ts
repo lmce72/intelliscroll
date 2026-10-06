@@ -5,6 +5,7 @@ import {
   activeDisplay,
   activeFilter,
   allowsStandaloneFiles,
+  commitFilterPreset,
   defaultFilterPreset,
   defaultLibrary,
   duplicatePreset,
@@ -329,4 +330,79 @@ test('a total with no id selects nothing total-shaped', () => {
   const library = defaultLibrary();
   assert.equal(idsForTotal(library, 'missing'), null);
   assert.equal(resolveActiveIds(library, {}).activeTotalPresetId, null);
+});
+
+// ─── Committing a temporary filter configuration ───────────────────────────
+
+test('committing writes back to the preset the configuration came from', () => {
+  // The rule that makes both entry points work: try another preset and keep
+  // it, or edit the current one and keep the edits. Matching on the active
+  // preset instead would turn "try B and keep it" into "overwrite A with B".
+  const library = defaultLibrary();
+  const a = library.filters[0]!;
+  const b = { ...structuredClone(a), id: 'preset-b', name: 'B', searchQuery: 'from-b' };
+  library.filters.push(b);
+
+  const tried = { ...structuredClone(b), searchQuery: 'edited-while-trying' };
+  const result = commitFilterPreset(library, tried);
+
+  assert.equal(result.activeId, 'preset-b');
+  assert.equal(result.created, false);
+  assert.equal(
+    library.filters.find((p) => p.id === 'preset-b')!.searchQuery,
+    'edited-while-trying',
+    'the preset it came from is the one that changed'
+  );
+  assert.equal(
+    library.filters.find((p) => p.id === a.id)!.searchQuery,
+    a.searchQuery,
+    'and the preset that merely happened to be active is untouched'
+  );
+});
+
+test('committing does not alias the configuration into the library', () => {
+  // The caller keeps its session object; if the library held the same object,
+  // a later edit to one would silently change the other.
+  const library = defaultLibrary();
+  const target = library.filters[0]!;
+  const config = structuredClone(target);
+
+  commitFilterPreset(library, config);
+  config.searchQuery = 'changed-after-committing';
+
+  assert.notEqual(
+    library.filters.find((p) => p.id === target.id)!.searchQuery,
+    'changed-after-committing'
+  );
+});
+
+test('committing a configuration whose preset was deleted creates one', () => {
+  // Writing it into some other preset would silently overwrite configuration
+  // the user never touched, which is worse than an extra entry they can see.
+  const library = defaultLibrary();
+  const countBefore = library.filters.length;
+  const orphan = { ...structuredClone(library.filters[0]!), id: 'gone', name: 'Gone' };
+
+  const result = commitFilterPreset(library, orphan);
+
+  assert.equal(result.created, true);
+  assert.equal(library.filters.length, countBefore + 1);
+  assert.notEqual(result.activeId, 'gone', 'the id has to be a real one');
+  assert.equal(
+    library.filters.find((p) => p.id === result.activeId)!.name,
+    'Gone',
+    'and it keeps the name the user was looking at'
+  );
+});
+
+test('committing the active preset unchanged is a no-op that keeps its id', () => {
+  const library = defaultLibrary();
+  const target = library.filters[0]!;
+  const before = JSON.stringify(library);
+
+  const result = commitFilterPreset(library, structuredClone(target));
+
+  assert.equal(result.activeId, target.id);
+  assert.equal(result.created, false);
+  assert.equal(JSON.stringify(library), before, 'nothing else moved');
 });

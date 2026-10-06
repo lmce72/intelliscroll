@@ -893,3 +893,35 @@ export function emptyFileTypeRule(): FilterPreset['fileTypes'] {
 export function allFileCategories(): FileCategory[] {
   return [...FILE_CATEGORIES];
 }
+
+/**
+ * Write a filter configuration back to the preset it came from, in place.
+ *
+ * Pure so it can be tested: the plugin class imports `obsidian`, and anything
+ * it owns is unreachable from the test runner. This is the one operation in
+ * the feed's temporary-preset flow that can destroy saved configuration, which
+ * makes it exactly the wrong thing to leave untested.
+ *
+ * Matching on the configuration's own id rather than on whichever preset is
+ * active is what makes both entry points work with one rule: trying another
+ * preset and keeping it, or editing the current one and keeping the edits.
+ */
+export function commitFilterPreset(
+  library: PresetLibrary,
+  config: FilterPreset
+): { activeId: string; created: boolean } {
+  const target = library.filters.find((preset) => preset.id === config.id);
+  if (target) {
+    // Assign rather than replace, so the caller's object is not aliased into
+    // the library and a later edit to one cannot reach into the other.
+    Object.assign(target, structuredClone(config));
+    return { activeId: target.id, created: false };
+  }
+
+  // Its preset was deleted while the temporary configuration was live. Creating
+  // an entry is the only honest outcome: writing it into a different preset
+  // would silently overwrite configuration the user never touched.
+  const created: FilterPreset = { ...structuredClone(config), id: newPresetId() };
+  library.filters.push(created);
+  return { activeId: created.id, created: true };
+}

@@ -21,6 +21,7 @@ import {
 import {
   activeAlgorithm,
   activeDisplay,
+  commitFilterPreset,
   activeFilter,
   backfillPresetDefaults,
   ensureLibrary,
@@ -460,6 +461,43 @@ export default class IntelliScrollPlugin extends Plugin {
       ...structuredClone(this.getEffectiveFilter()),
       ...patch,
     };
+  }
+
+  /**
+   * Try a saved filter preset without committing to it.
+   *
+   * Picking a preset from the feed used to write the choice straight to
+   * `data.json`, so trying one and disliking it meant switching back and
+   * hoping the other one had not been edited in between. The override carries
+   * the preset's own id and name, which is what lets the button say which
+   * configuration is in force and what `commitSessionFilter` writes back to.
+   */
+  applySessionFilterFrom(preset: FilterPreset): void {
+    this.sessionFilter = structuredClone(preset);
+  }
+
+  /**
+   * Make the filter configuration in force permanent, and make it the active
+   * preset.
+   *
+   * Writing back to the preset the override came from — rather than always to
+   * whichever preset is currently active — is what makes both cases work with
+   * one rule: try a different preset and keep it, or edit the current one and
+   * keep the edits.
+   *
+   * Anything else about an active total preset stops being true the moment a
+   * group is chosen by hand, which is the same reason `selectPreset` clears it.
+   */
+  async commitSessionFilter(): Promise<void> {
+    const session = this.sessionFilter;
+    if (!session) return;
+
+    const { activeId } = commitFilterPreset(this.data.settings.presets, session);
+
+    this.data.settings.activeFilterPresetId = activeId;
+    this.data.settings.activeTotalPresetId = null;
+    this.sessionFilter = null;
+    await this.saveSettingsAndRefreshViews();
   }
 
   applySessionAlgorithm(patch: Partial<AlgorithmPreset>): void {

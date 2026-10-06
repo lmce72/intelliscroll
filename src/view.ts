@@ -211,6 +211,8 @@ export class IntelliScrollView extends ItemView {
    */
   private tuneButton: HTMLButtonElement | null = null;
   private filterButton: HTMLButtonElement | null = null;
+  /** The visible preset name inside `filterButton`. */
+  private filterNameEl: HTMLElement | null = null;
   private savePresetButton: HTMLButtonElement | null = null;
 
   /** Visible time accumulated per path for the current batch. */
@@ -716,6 +718,10 @@ export class IntelliScrollView extends ItemView {
     const filterBtn = controls.createEl('button');
     filterBtn.className = 'intelliscroll-filter-btn';
     setIcon(filterBtn, 'filter');
+    // The name is the point of this button: an icon alone cannot say which of
+    // several filter presets is in force, which is the one thing the reader
+    // needs from it. Filled in by `updatePresetButtons`.
+    this.filterNameEl = filterBtn.createSpan({ cls: 'intelliscroll-preset-name' });
     filterBtn.addEventListener('click', (event) => {
       this.showFilterMenu(event);
     });
@@ -1399,9 +1405,21 @@ export class IntelliScrollView extends ItemView {
 
     if (this.filterButton) {
       this.filterButton.toggleClass('mod-cta', overridden);
+
+      // While a temporary change is in force the active preset's name is not
+      // an answer to "what am I looking at" — the configuration in force is
+      // the override, which is deliberately allowed to differ. So the name
+      // shown is the override's own, which is the preset it came from, and a
+      // marker says the two are not currently the same thing.
+      const effective = this.plugin.getEffectiveFilter();
+      const shownName = overridden
+        ? t('view.action.filterTemporaryName', { name: effective.name })
+        : effective.name;
+
+      if (this.filterNameEl) this.filterNameEl.setText(shownName);
       const label = overridden
-        ? t('view.action.filterActive')
-        : t('view.action.filter');
+        ? t('view.action.filterActive', { name: shownName })
+        : t('view.action.filter', { name: shownName });
       this.filterButton.setAttribute('aria-label', label);
       this.filterButton.setAttribute('title', label);
     }
@@ -1442,11 +1460,22 @@ export class IntelliScrollView extends ItemView {
       menu.addItem((item) =>
         item.setTitle(t('view.menu.temporaryFilter')).setIsLabel(true)
       );
+      // Kept in this order deliberately: the two actions that persist sit
+      // together, and the one that only discards sits last, away from them.
+      // The order also means a mis-click on either neighbour of the
+      // destructive item is harmless — one writes a new preset, the other
+      // throws the experiment away.
       menu.addItem((item) =>
         item
           .setTitle(t('view.menu.saveAsPreset'))
-          .setIcon('save')
+          .setIcon('file-plus')
           .onClick(() => this.promptSaveFilterPreset())
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t('view.menu.commitTemporary'))
+          .setIcon('save')
+          .onClick(() => void this.commitFilterOverride())
       );
       menu.addItem((item) =>
         item
@@ -1459,12 +1488,35 @@ export class IntelliScrollView extends ItemView {
     menu.showAtMouseEvent(event);
   }
 
-  private async selectFilterPreset(id: string): Promise<void> {
-    // `selectPreset` discards that group's override itself, so choosing a saved
-    // preset leaves exactly what the preset says in force while the other
-    // groups' overrides are untouched.
-    await this.plugin.selectPreset('filter', id);
+  /**
+   * Try a saved filter preset, without committing to it.
+   *
+   * Deliberately session-scoped. A preset chosen here shows immediately and is
+   * gone next time unless the user says otherwise with the menu's commit
+   * actions, so a mis-click costs nothing. The algorithm and display groups
+   * keep their own behaviour: choosing one of those still persists, because
+   * both are a single value rather than a multi-field configuration one might
+   * want to explore.
+   */
+  private selectFilterPreset(id: string): void {
+    const preset = this.plugin.data.settings.presets.filters.find(
+      (candidate) => candidate.id === id
+    );
+    if (!preset) return;
+
+    this.plugin.applySessionFilterFrom(preset);
     this.updatePresetButtons();
+    // Filters are applied at index time, so the view alone cannot show the
+    // change — the index has to be rebuilt for it.
+    this.batchSettingsKey = null;
+    void this.refreshForCurrentSettings();
+  }
+
+  private async commitFilterOverride(): Promise<void> {
+    await this.plugin.commitSessionFilter();
+    this.updatePresetButtons();
+    this.batchSettingsKey = null;
+    void this.refreshForCurrentSettings();
   }
 
   private discardFilterOverride(): void {
