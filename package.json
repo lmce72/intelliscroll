@@ -1,6 +1,6 @@
 {
   "name": "intelliscroll",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Scroll your own notes, resurfaced on a spaced-repetition schedule, not someone else's feed.",
   "main": "main.js",
   "type": "module",
