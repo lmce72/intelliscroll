@@ -6,11 +6,10 @@ import {
   formatRetention,
   INTERVAL_UNITS,
   RETENTION_STEP,
-  retentionDecimals,
   type IntervalDisplay,
   type IntervalUnit,
 } from '../src/format.ts';
-import { REQUEST_RETENTION_MAX } from '../src/types.ts';
+import { REQUEST_RETENTION_MAX, REQUEST_RETENTION_MIN } from '../src/types.ts';
 
 /** Fractional digits a caller would actually render for a display value. */
 function renderedDecimals(display: IntervalDisplay): number {
@@ -163,50 +162,54 @@ test('describeInterval tolerates a sweep of raw numbers without throwing or leak
 
 // ─── Retention precision ───────────────────────────────────────────────────
 
-test('retention precision rises as the value approaches the sensitive end', () => {
-  assert.equal(retentionDecimals(0.99), 4, 'at the maximum');
-  assert.equal(retentionDecimals(0.95), 4, 'top band starts at 0.95');
-  assert.equal(retentionDecimals(0.9501), 4);
-  assert.equal(retentionDecimals(0.9499), 3, 'just below the top band');
-  assert.equal(retentionDecimals(0.93), 3);
-  assert.equal(retentionDecimals(0.9), 3, 'middle band starts at 0.90');
-  assert.equal(retentionDecimals(0.8999), 2, 'just below the middle band');
-  assert.equal(retentionDecimals(0.7), 2, 'at the minimum');
+test('one step always changes the formatted retention, at every value', () => {
+  // The bug this pins: precision used to be banded, so below 0.90 the readout
+  // sat on two decimals and a 0.0001 tap left it apparently unchanged. The
+  // control looked dead. A readout coarser than the step it reports on is worse
+  // than a noisy one, so this is checked across the whole range rather than in
+  // the band where it happened to work.
+  assert.equal(RETENTION_STEP, 0.0001);
+
+  const starts = [
+    REQUEST_RETENTION_MIN,
+    0.75,
+    0.85,
+    0.89,
+    0.9,
+    0.94,
+    0.95,
+    0.97,
+    REQUEST_RETENTION_MAX,
+  ];
+
+  for (const start of starts) {
+    assert.notEqual(
+      formatRetention(start + RETENTION_STEP),
+      formatRetention(start),
+      `a step from ${start} must be visible`
+    );
+  }
 });
 
-test('retention precision does not move when the allowed range moves', () => {
-  // These were offsets from REQUEST_RETENTION_MAX. Raising that from 0.97 to
-  // 0.99 slid both bands upwards and changed what the control displayed, which
-  // is not something a display rule should do. They are absolute now, and this
-  // pins the reason: they describe where FSRS is sensitive, not how far the
-  // permitted range happens to reach.
-  assert.equal(retentionDecimals(REQUEST_RETENTION_MAX), 4);
-  assert.equal(retentionDecimals(0.95), 4);
-  assert.equal(
-    retentionDecimals(0.9499),
-    3,
-    'the band edge is 0.95, not max minus something'
-  );
-  assert.equal(retentionDecimals(0.9), 3);
-  assert.equal(retentionDecimals(0.8999), 2);
-});
-
-test('an unusable retention value falls back to the coarsest precision', () => {
-  assert.equal(retentionDecimals(NaN), 2);
-  assert.equal(retentionDecimals(-Infinity), 2);
-  assert.equal(retentionDecimals(Infinity), 4);
-});
-
-// ─── Retention formatting ──────────────────────────────────────────────────
-
-test('formatRetention renders at the precision its band calls for', () => {
-  assert.equal(formatRetention(0.96), '0.9600');
-  assert.equal(formatRetention(0.95), '0.9500');
-  assert.equal(formatRetention(0.94), '0.940');
-  assert.equal(formatRetention(0.93), '0.930');
-  assert.equal(formatRetention(0.9), '0.900');
+test('formatRetention trims trailing zeros but never below two decimals', () => {
+  // The value decides the precision, so a round number stays readable and a
+  // stepped one shows exactly the digits that differ.
   assert.equal(formatRetention(0.85), '0.85');
+  assert.equal(formatRetention(0.8501), '0.8501');
+  assert.equal(formatRetention(0.9), '0.90');
+  assert.equal(formatRetention(0.95), '0.95');
+  assert.equal(formatRetention(0.9501), '0.9501');
   assert.equal(formatRetention(0.7), '0.70');
+  assert.equal(formatRetention(0.99), '0.99');
+});
+
+test('a value carrying float noise is rounded to the step before display', () => {
+  // Stepping accumulates binary rounding error; the string must not show it.
+  let value = 0.85;
+  for (let i = 0; i < 7; i++) value += RETENTION_STEP;
+  const text = formatRetention(value);
+  assert.equal(text, '0.8507');
+  assert.ok(text.length <= 6, `no float tail: ${text}`);
 });
 
 test('formatRetention does not emit NaN for a non-finite value', () => {
@@ -216,22 +219,18 @@ test('formatRetention does not emit NaN for a non-finite value', () => {
 
 // ─── Step round-trip ───────────────────────────────────────────────────────
 
-test('a retention step visibly changes the formatted output in the top band', () => {
-  assert.equal(RETENTION_STEP, 0.0001);
-
-  // Twenty consecutive steps, each distinct: this is the whole reason four
-  // decimals exist. At two decimals they would all collapse to one string.
+test('twenty consecutive steps produce twenty distinct strings', () => {
   const seen = new Set<string>();
   for (let i = 0; i < 20; i++) {
-    seen.add(formatRetention(0.95 + i * RETENTION_STEP));
+    seen.add(formatRetention(0.85 + i * RETENTION_STEP));
   }
   assert.equal(seen.size, 20);
 });
 
-test('stepping up and down changes the output around a top-band value', () => {
+test('stepping up and down changes the output in both directions', () => {
   const value = 0.96;
   const base = formatRetention(value);
-  assert.equal(base, '0.9600');
+  assert.equal(base, '0.96');
   assert.notEqual(formatRetention(value + RETENTION_STEP), base);
   assert.notEqual(formatRetention(value - RETENTION_STEP), base);
 });

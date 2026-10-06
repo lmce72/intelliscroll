@@ -137,33 +137,41 @@ export const RETENTION_STEP = 0.0001;
 // rather than everywhere.
 //
 /**
- * Where the display needs more decimals, as absolute values rather than as
- * offsets from the allowed maximum.
+ * Decimal places a retention value is rounded to before display.
  *
- * They were offsets, and raising the maximum from 0.97 to 0.99 silently slid
- * both bands upwards and changed what the control displayed — a display rule
- * that moves when an unrelated limit moves is not a rule about the display.
- * What these describe is where *FSRS* becomes sensitive: the interval responds
- * steeply to retention near the top of its range, which is a property of the
- * forgetting curve and not of the range we happen to permit.
+ * Exactly one step's worth: more would be noise, and fewer would hide the step.
  */
-const HIGH_PRECISION_FROM = 0.95;
-const MEDIUM_PRECISION_FROM = 0.9;
+const RETENTION_PRECISION = 4;
+
+/** Fewest decimals shown, so `0.9` still reads as a retention rather than a count. */
+const RETENTION_MIN_DECIMALS = 2;
 
 /**
- * Decimal places to show for a retention value. More where a small change
- * moves the resulting interval a lot, so the control does not lie.
+ * Format a retention value so that a single step is always visible.
+ *
+ * The rule this replaces raised precision only near the top of the range, on
+ * the theory that fine detail mattered only where the interval moved a lot.
+ * What it actually produced was a control that looked broken: at 0.85 the
+ * readout sat on two decimals, so a 0.0001 tap left the number apparently
+ * unchanged and the only evidence anything had happened was the intervals
+ * shifting. A readout coarser than the step it is reporting on is worse than a
+ * noisy one.
+ *
+ * Precision is now driven by the value instead: rounded to the step, trailing
+ * zeros trimmed, never below two decimals. `0.85` still reads "0.85", and the
+ * instant it is stepped it reads "0.8501" — so the string changes on every tap
+ * and stops changing when it stops being true.
  */
-export function retentionDecimals(value: number): number {
-  if (value >= HIGH_PRECISION_FROM) return 4;
-  if (value >= MEDIUM_PRECISION_FROM) return 3;
-  return 2;
-}
-
-/** Retention rounded for display, at `retentionDecimals` precision. */
 export function formatRetention(value: number): string {
-  // The control can momentarily hold a non-finite value mid-drag; render it as
-  // a clean zero rather than the string "NaN".
+  // The control can momentarily hold a non-finite value mid-drag; render a
+  // clean zero rather than the string "NaN".
   const safe = Number.isFinite(value) ? value : 0;
-  return safe.toFixed(retentionDecimals(safe));
+
+  const trimmed = roundTo(safe, RETENTION_PRECISION)
+    .toFixed(RETENTION_PRECISION)
+    .replace(/0+$/, '')
+    .replace(/\.$/, '');
+
+  const [whole = '0', fraction = ''] = trimmed.split('.');
+  return `${whole}.${fraction.padEnd(RETENTION_MIN_DECIMALS, '0')}`;
 }
