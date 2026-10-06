@@ -33,7 +33,7 @@ import { selectBatch } from './selector';
 import { allAlgorithms, getAlgorithm } from './algorithms';
 import { clampDwell, gradeEngagement, ratingForVerdict } from './grading';
 import { SrsStore, logSrsError } from './srsLog';
-import { ignoreIcon, ignoreLabel, isIgnored, paintRatingButton, showRatingMenu, toggleIgnored } from './rating';
+import { ignoreIcon, ignoreLabel, isIgnored, paintRatingButton, showIgnoreMenu, showRatingMenu } from './rating';
 import { passesFileTypeRule } from './filtering';
 import { pickCardIndex } from './navigation';
 import { ShortcutsModal } from './help';
@@ -1499,27 +1499,6 @@ export class IntelliScrollView extends ItemView {
     container: HTMLElement,
     preview: NotePreview
   ): void {
-    // Rating and ignoring get a button each. Rating is a choice between four
-    // outcomes; ignoring is a two-state toggle — folding the toggle into the
-    // rating menu would make the common case two clicks instead of one. The
-    // warning colour marks it as the destructive-feeling one.
-    const ignoreButton = container.createEl('button', {
-      cls: 'clickable-icon mod-warning intelliscroll-card-ignore',
-    });
-    const paintIgnore = (ignored: boolean): void => {
-      setIcon(ignoreButton, ignoreIcon(ignored));
-      const label = ignoreLabel(ignored);
-      ignoreButton.setAttribute('aria-label', label);
-      ignoreButton.setAttribute('title', label);
-    };
-    paintIgnore(isIgnored(this.plugin, preview.path));
-    ignoreButton.addEventListener('click', (event) => {
-      event.stopPropagation();
-      void (async () => {
-        paintIgnore(await toggleIgnored(this.plugin, preview.path));
-      })();
-    });
-
     const button = container.createEl('button', {
       cls: 'clickable-icon intelliscroll-card-rate',
     });
@@ -1548,6 +1527,39 @@ export class IntelliScrollView extends ItemView {
     const button = card?.querySelector<HTMLElement>('.intelliscroll-card-rate');
     if (!button) return;
     paintRatingButton(this.plugin, button, path, title);
+  }
+
+  /**
+   * The card's ignore control: a button opening the folder menu.
+   *
+   * A menu rather than a toggle because ignoring a *folder* is the thing worth
+   * reaching for here, and that needs the choice of which level.
+   */
+  private renderIgnoreButton(
+    container: HTMLElement,
+    preview: NotePreview
+  ): void {
+    const button = container.createEl('button', {
+      cls: 'clickable-icon mod-warning intelliscroll-card-ignore',
+    });
+    const paint = (): void => {
+      const ignored = isIgnored(this.plugin, preview.path);
+      setIcon(button, ignoreIcon(ignored));
+      const label = ignoreLabel(ignored);
+      button.setAttribute('aria-label', label);
+      button.setAttribute('title', label);
+    };
+    paint();
+
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      showIgnoreMenu({
+        plugin: this.plugin,
+        event,
+        path: preview.path,
+        onChanged: paint,
+      });
+    });
   }
 
   private createCardObserver(container: HTMLElement): IntersectionObserver {
@@ -1962,6 +1974,13 @@ export class IntelliScrollView extends ItemView {
       const actions = titleRow.createDiv('intelliscroll-card-actions');
       this.renderRatingButton(actions, preview);
     }
+
+    // The note's path, with the ignore control beside it. The path is what
+    // tells you which folder an entry in that menu refers to, so the button
+    // belongs next to it rather than up in the title row.
+    const pathRow = card.createDiv('intelliscroll-card-pathrow');
+    pathRow.createSpan({ cls: 'intelliscroll-card-path', text: preview.path });
+    this.renderIgnoreButton(pathRow, preview);
 
     // Image (lazy loaded)
     if (preview.imagePath) {

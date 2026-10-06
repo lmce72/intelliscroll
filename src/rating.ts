@@ -73,6 +73,59 @@ export function ratingLabel(rating: Rating): string {
   return t(`view.rating.${rating}`);
 }
 
+/** One thing the ignore menu can offer. */
+export interface IgnoreTarget {
+  /** What goes into the ignore list. A trailing slash marks a directory. */
+  value: string;
+  /** Folder depth below the vault root. */
+  level: number;
+  kind: 'note' | 'folder';
+}
+
+/**
+ * The ignore menu's entries for a note: the note itself, then each folder from
+ * the note's own folder upwards.
+ *
+ * Stops *below* the vault root. Ignoring the root would exclude the entire
+ * vault, and that should not be one click away in a menu opened next to a path.
+ * A note sitting at the root therefore offers only itself.
+ */
+export function ignoreTargets(path: string): IgnoreTarget[] {
+  const targets: IgnoreTarget[] = [{ value: path, level: 0, kind: 'note' }];
+
+  const segments = path.split('/');
+  segments.pop(); // drop the filename
+
+  for (let depth = segments.length; depth >= 1; depth--) {
+    const folder = segments.slice(0, depth).join('/');
+    targets.push({ value: `${folder}/`, level: depth, kind: 'folder' });
+  }
+
+  return targets;
+}
+
+/** Add or remove one exact value from the active filter preset's ignore list. */
+export async function toggleIgnoreValue(
+  plugin: IntelliScrollPlugin,
+  value: string
+): Promise<boolean> {
+  const preset = plugin.data.settings.presets.filters.find(
+    (candidate) => candidate.id === plugin.data.settings.activeFilterPresetId
+  );
+  if (!preset) return false;
+
+  const already = preset.ignore.values.includes(value);
+  preset.ignore = {
+    mode: preset.ignore.mode,
+    values: already
+      ? preset.ignore.values.filter((entry) => entry !== value)
+      : [...preset.ignore.values, value],
+  };
+
+  await plugin.saveSettingsAndRefreshViews();
+  return !already;
+}
+
 /** Whether the active filter preset ignores this path. */
 export function isIgnored(plugin: IntelliScrollPlugin, path: string): boolean {
   const lower = path.toLowerCase();
@@ -91,24 +144,7 @@ export async function toggleIgnored(
   plugin: IntelliScrollPlugin,
   path: string
 ): Promise<boolean> {
-  const preset = plugin.data.settings.presets.filters.find(
-    (candidate) => candidate.id === plugin.data.settings.activeFilterPresetId
-  );
-  if (!preset) return isIgnored(plugin, path);
-
-  const lower = path.toLowerCase();
-  const already = preset.ignore.values.some(
-    (value) => value.toLowerCase() === lower
-  );
-  preset.ignore = {
-    mode: preset.ignore.mode,
-    values: already
-      ? preset.ignore.values.filter((value) => value.toLowerCase() !== lower)
-      : [...preset.ignore.values, path],
-  };
-
-  await plugin.saveSettingsAndRefreshViews();
-  return !already;
+  return toggleIgnoreValue(plugin, path);
 }
 
 /**
@@ -195,4 +231,59 @@ export function ignoreIcon(ignored: boolean): string {
 
 export function ignoreLabel(ignored: boolean): string {
   return ignored ? t('view.menu.unignore') : t('view.menu.ignore');
+}
+
+/** The icons the ignore menu uses: a note hidden, a folder hidden. */
+function ignoreTargetIcon(target: IgnoreTarget, ignored: boolean): string {
+  if (ignored) return 'rotate-ccw';
+  return target.kind === 'note' ? 'eye-off' : 'folder-minus';
+}
+
+/**
+ * The ignore menu for a note: it, then each folder above it.
+ *
+ * Folders are listed with their path and depth so it is unambiguous which one
+ * a click will exclude — an entry reading only a folder's own name would be
+ * useless when several folders share it.
+ */
+export function showIgnoreMenu(options: {
+  plugin: IntelliScrollPlugin;
+  event: MouseEvent;
+  path: string;
+  onChanged?: () => void;
+}): void {
+  const { plugin, event, path, onChanged } = options;
+  const preset = plugin.data.settings.presets.filters.find(
+    (candidate) => candidate.id === plugin.data.settings.activeFilterPresetId
+  );
+
+  const menu = new Menu();
+  menu.addItem((item) => item.setTitle(t('view.ignore.section')).setIsLabel(true));
+
+  for (const target of ignoreTargets(path)) {
+    const ignored = preset?.ignore.values.includes(target.value) ?? false;
+    const title =
+      target.kind === 'note'
+        ? ignored
+          ? t('view.menu.unignore')
+          : t('view.menu.ignore')
+        : t(ignored ? 'view.ignore.removeFolder' : 'view.ignore.addFolder', {
+            path: target.value.replace(/\/+$/, ''),
+            level: target.level,
+          });
+
+    menu.addItem((item) =>
+      item
+        .setTitle(title)
+        .setIcon(ignoreTargetIcon(target, ignored))
+        .onClick(() => {
+          void (async () => {
+            await toggleIgnoreValue(plugin, target.value);
+            onChanged?.();
+          })();
+        })
+    );
+  }
+
+  menu.showAtMouseEvent(event);
 }

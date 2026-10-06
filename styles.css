@@ -639,3 +639,21 @@
 .intelliscroll-note-float-rate[data-rating='easy'] {
   color: var(--color-blue);
 }
+
+/* The note's path, under the title. It exists so a folder listed in the ignore
+   menu can be matched against the note's own location at a glance. */
+.intelliscroll-card-pathrow {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: -0.5rem 0 0.75rem;
+}
+
+.intelliscroll-card-path {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  /* Paths are long and unbroken; let them wrap rather than widen the card. */
+  overflow-wrap: anywhere;
+}

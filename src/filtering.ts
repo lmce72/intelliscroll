@@ -113,10 +113,20 @@ export function passesTagRule(
  * also swallow `Notes-archive`, and folders already have their own dimension.
  */
 export function passesIgnoreRule(rule: FilterRule, filePath: string): boolean {
-  const wanted = rule.values
-    .map((value) => value.trim().toLowerCase())
-    .filter((value) => value.length > 0);
-  return passesMode(rule.mode, wanted.includes(filePath.toLowerCase()));
+  const path = filePath.toLowerCase();
+  const anyMatch = rule.values
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .some((value) =>
+      value.endsWith('/')
+        ? // A trailing slash marks a directory, which keeps the two kinds of
+          // entry apart: without it, ignoring the folder `Notes/` and ignoring
+          // a note literally named `Notes` would be the same string, and only
+          // one of them should also swallow `Notes/sub/`.
+          matchesFolder(filePath, value.replace(/\/+$/, ''))
+        : value.toLowerCase() === path
+    );
+  return passesMode(rule.mode, anyMatch);
 }
 
 /**
