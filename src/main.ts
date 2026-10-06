@@ -1,11 +1,15 @@
 import { Plugin } from 'obsidian';
 import {
+  CURRENT_SETTINGS_VERSION,
+  DEFAULT_TIER_COUNT,
   FSRS_DEFAULT_TUNABLES,
   isLanguage,
+  SETTINGS_VERSION_TIER_COUNT,
   normalizeMaximumInterval,
   normalizeRetention,
   normalizeTierCount,
   normalizeTopGapDays,
+  PREVIOUS_DEFAULT_TIER_COUNT,
   type AlgorithmPreset,
   type DisplayPreset,
   type FilterPreset,
@@ -109,6 +113,14 @@ export default class IntelliScrollPlugin extends Plugin {
 
     let migrated = false;
 
+    // Absent means "written before this counter existed", so every migration
+    // gated on it is still owed.
+    const loadedSettingsVersion =
+      typeof loadedSettings.settingsVersion === 'number' &&
+      Number.isFinite(loadedSettings.settingsVersion)
+        ? loadedSettings.settingsVersion
+        : 0;
+
     // Presets replaced the flat settings this fork used previously. Data with
     // no `presets` object is migrated from those flat fields into a single
     // "Default" preset, so an upgrade preserves the user's configuration.
@@ -176,7 +188,20 @@ export default class IntelliScrollPlugin extends Plugin {
     }
     for (const preset of presets.displays) {
       const intervalUnit = normalizeIntervalUnit(preset.intervalUnit);
-      const tierCount = normalizeTierCount(preset.tierCount);
+      // Moves the old default up, the same way the interval cap does: four was
+      // what this shipped with rather than something anyone chose, so it should
+      // follow the new default.
+      //
+      // Unlike the cap, this one is gated on the settings version rather than
+      // on the value alone. Four is still an option in the control, so matching
+      // on it would force a deliberate choice of four back to eight on every
+      // single load — a migration that never finishes.
+      const migrateTierCount =
+        loadedSettingsVersion < SETTINGS_VERSION_TIER_COUNT &&
+        preset.tierCount === PREVIOUS_DEFAULT_TIER_COUNT;
+      const tierCount = migrateTierCount
+        ? DEFAULT_TIER_COUNT
+        : normalizeTierCount(preset.tierCount);
       if (
         intervalUnit !== preset.intervalUnit ||
         tierCount !== preset.tierCount
@@ -213,7 +238,12 @@ export default class IntelliScrollPlugin extends Plugin {
           : DEFAULT_SETTINGS.infiniteScroll,
       presets,
       ...activeIds,
+      settingsVersion: CURRENT_SETTINGS_VERSION,
     };
+
+    // Recording the version is itself a change worth persisting, or the
+    // migrations it gates would run again on the next load.
+    if (loadedSettingsVersion < CURRENT_SETTINGS_VERSION) migrated = true;
 
     // Point the translator before anything renders, so the very first paint is
     // already in the right language rather than flashing English.

@@ -122,7 +122,17 @@ export const DEFAULT_TOP_GAP_DAYS = 2;
 
 /** Ladder lengths the user may choose between. */
 export const TIER_COUNTS: readonly number[] = [4, 8];
-export const DEFAULT_TIER_COUNT = 4;
+/**
+ * Rungs the rating ladder shows by default.
+ *
+ * Eight, because four grades put the whole spread of a note's schedule into
+ * three jumps and the top of the ladder routinely lands on the interval cap,
+ * where three of the four rungs are then a day apart. See `expandTiers` for
+ * what the extra rungs are and are not.
+ */
+export const DEFAULT_TIER_COUNT = 8;
+/** What this shipped as before the default moved, for the one-time migration. */
+export const PREVIOUS_DEFAULT_TIER_COUNT = 4;
 
 /** Clamp a top-gap setting into range, falling back when unusable. */
 export function normalizeTopGapDays(value: unknown): number {
@@ -428,7 +438,31 @@ export interface PluginSettings {
   activeDisplayPresetId: string;
   /** When set, this drives the three above. Editing any group clears it. */
   activeTotalPresetId: string | null;
+
+  /**
+   * Which one-time configuration migrations have already been applied.
+   *
+   * Needed because some migrations move a *stored value*, and a value-based
+   * match cannot tell "never touched, still at the old default" from "the user
+   * deliberately picked this". The interval-cap migration gets away with
+   * matching on 365 only because 365 is not something the control can be set
+   * to; the tier count is, so matching on it would silently undo a deliberate
+   * choice on every load.
+   */
+  settingsVersion: number;
 }
+
+/**
+ * Current `PluginSettings.settingsVersion`.
+ *
+ * Raised when a new one-time migration is added. Migrations are written to be
+ * safe to re-run, but they are gated on this so that a value a user picks after
+ * the fact is never overwritten.
+ */
+export const CURRENT_SETTINGS_VERSION = 1;
+
+/** Migration gate 1: the rating ladder's default moved from 4 rungs to 8. */
+export const SETTINGS_VERSION_TIER_COUNT = 1;
 
 export function isAlgorithmId(value: unknown): value is AlgorithmId {
   return (

@@ -32,16 +32,6 @@ import {
 
 export const RATING_ORDER: readonly Rating[] = ['again', 'hard', 'good', 'easy'];
 
-/**
- * Rungs the rating popover shows when the caller does not say.
- *
- * The live count is the display preset's `tierCount`; this is only the fallback
- * for a caller that has none. It is deliberately not baked into `tiersFor` —
- * an earlier version hardcoded 8 here, which meant the setting did nothing and
- * the popover disagreed with the settings page.
- */
-export const DEFAULT_TIER_COUNT = 8;
-
 const RATING_ICONS: Record<Rating, string> = {
   again: 'rotate-ccw',
   hard: 'minus',
@@ -264,9 +254,11 @@ function tiersFor(
   const preset = plugin.getEffectiveAlgorithm();
   if (preset.algorithm === 'off') return [];
 
-  const tierCount = normalizeTierCount(
-    plugin.getEffectiveDisplay().tierCount ?? DEFAULT_TIER_COUNT
-  );
+  // `normalizeTierCount` already falls back to the plugin's default, so there
+  // is no second fallback here. There used to be — a `DEFAULT_TIER_COUNT` local
+  // to this module, shadowing the one in `types.ts` and holding a different
+  // value, so the two defaults disagreed.
+  const tierCount = normalizeTierCount(plugin.getEffectiveDisplay().tierCount);
 
   const state = plugin.srsStore?.getState(path) ?? null;
   const fsrs =

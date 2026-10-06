@@ -33,6 +33,7 @@ import {
 } from './format';
 import type { RetentionWindow } from './tiers';
 import {
+  CURRENT_SETTINGS_VERSION,
   TIER_COUNTS,
   TOP_GAP_DAYS_MAX,
   TOP_GAP_DAYS_MIN,
@@ -73,6 +74,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   activeAlgorithmPresetId: DEFAULT_PRESETS.algorithms[0]!.id,
   activeDisplayPresetId: DEFAULT_PRESETS.displays[0]!.id,
   activeTotalPresetId: DEFAULT_PRESETS.totals[0]!.id,
+  // A fresh install is already current: there is nothing to migrate.
+  settingsVersion: CURRENT_SETTINGS_VERSION,
 };
 
 export class IntelliScrollSettingTab extends PluginSettingTab {
