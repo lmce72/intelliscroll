@@ -1,15 +1,11 @@
 import {
-  AbstractInputSuggest,
   App,
-  Notice,
-  normalizePath,
   PluginSettingTab,
   requireApiVersion,
   Setting,
   type SettingDefinitionItem,
 } from 'obsidian';
 import IntelliScrollPlugin from './main';
-import { allAlgorithms } from './algorithms';
 import {
   activeAlgorithm,
   activeDisplay,
@@ -26,10 +22,6 @@ import {
 } from './presetSettings';
 import { setLanguage, t } from './i18n';
 import {
-  MAXIMUM_INTERVAL_MAX,
-  MAXIMUM_INTERVAL_MIN,
-  REQUEST_RETENTION_MAX,
-  REQUEST_RETENTION_MIN,
   isAlgorithmId,
   isGradingMode,
   isLanguage,
@@ -44,76 +36,8 @@ import {
   type PluginSettings,
 } from './types';
 
-/**
- * Algorithm ids to display names, sourced from the registry itself.
- *
- * Built per call: a module-level table would be evaluated once at import, before
- * the language setting is applied, and the labels would then freeze in whatever
- * language was active at load time.
- */
-function algorithmOptions(): Record<string, string> {
-  return Object.fromEntries(
-    allAlgorithms().map((algorithm) => [
-      algorithm.id,
-      algorithm.id === 'off' ? t('presets.algorithm.option.off') : algorithm.label,
-    ])
-  );
-}
-
-function gradingModeOptions(): Record<string, string> {
-  return {
-    auto: t('settings.gradingMode.option.auto'),
-    hybrid: t('settings.gradingMode.option.hybrid'),
-    manual: t('settings.gradingMode.option.manual'),
-  };
-}
-
-function sensitivityOptions(): Record<string, string> {
-  return {
-    conservative: t('settings.sensitivity.option.conservative'),
-    medium: t('settings.sensitivity.option.medium'),
-    aggressive: t('settings.sensitivity.option.aggressive'),
-  };
-}
-
 const GITHUB_URL = 'https://github.com/lmce72/intelliscroll';
 const ISSUES_URL = `${GITHUB_URL}/issues`;
-
-class FolderSuggest extends AbstractInputSuggest<string> {
-  inputEl: HTMLInputElement;
-  private cachedFolders: string[] | null = null;
-
-  constructor(app: App, inputEl: HTMLInputElement) {
-    super(app, inputEl);
-    this.inputEl = inputEl;
-  }
-
-  private getFolders(): string[] {
-    if (this.cachedFolders) return this.cachedFolders;
-
-    this.cachedFolders = this.app.vault
-      .getAllFolders()
-      .map((folder) => folder.path)
-      .filter((path) => path.length > 0);
-    return this.cachedFolders;
-  }
-
-  getSuggestions(inputStr: string): string[] {
-    const lowerInput = inputStr.toLowerCase();
-    return this.getFolders().filter((path) =>
-      path.toLowerCase().includes(lowerInput)
-    );
-  }
-
-  renderSuggestion(path: string, el: HTMLElement): void {
-    el.setText(path);
-  }
-
-  selectSuggestion(path: string): void {
-    this.inputEl.value = path;
-    this.close();
-  }
-}
 
 // Built once, so the active ids below refer to the very presets in this
 // library rather than to freshly generated ones that would not resolve.
@@ -165,6 +89,12 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         },
       },
       {
+        name: t('settings.feed.title'),
+        render: (setting) => {
+          setting.setName(t('settings.feed.title')).setHeading();
+        },
+      },
+      {
         name: t('settings.batchSize.name'),
         desc: t('settings.batchSize.desc'),
         control: {
@@ -179,232 +109,13 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         desc: t('settings.infiniteScroll.desc'),
         control: { type: 'toggle', key: 'infiniteScroll' },
       },
-      {
-        name: t('settings.includeMediaOnlyNotes.name'),
-        desc: t('settings.includeMediaOnlyNotes.desc'),
-        control: { type: 'toggle', key: 'includeMediaOnlyNotes' },
-      },
-      {
-        name: t('settings.showNonMarkdownFiles.name'),
-        desc: t('settings.showNonMarkdownFiles.desc'),
-        control: { type: 'toggle', key: 'showNonMarkdownFiles' },
-      },
-      {
-        name: t('settings.simplifiedView.name'),
-        desc: t('settings.simplifiedView.desc'),
-        control: { type: 'toggle', key: 'simplifiedView' },
-      },
-      {
-        name: t('settings.reduceAnimations.name'),
-        desc: t('settings.reduceAnimations.desc'),
-        control: { type: 'toggle', key: 'reduceAnimations' },
-      },
-      {
-        name: t('settings.previewSize.name'),
-        desc: t('settings.previewSize.desc'),
-        control: {
-          type: 'dropdown',
-          key: 'previewSize',
-          options: {
-            small: t('settings.previewSize.option.small'),
-            medium: t('settings.previewSize.option.medium'),
-            large: t('settings.previewSize.option.large'),
-          },
-        },
-      },
-      {
-        name: t('settings.searchQuery.name'),
-        desc: t('settings.searchQuery.desc'),
-        control: {
-          type: 'text',
-          key: 'searchQuery',
-          placeholder: 'tag:#work [status:Draft]',
-        },
-      },
-      {
-        name: t('settings.openNoteBehavior.name'),
-        desc: t('settings.openNoteBehavior.desc'),
-        control: {
-          type: 'dropdown',
-          key: 'openNoteBehavior',
-          options: {
-            tab: t('settings.openNoteBehavior.option.tab'),
-            reuse: t('settings.openNoteBehavior.option.reuse'),
-            window: t('settings.openNoteBehavior.option.window'),
-          },
-        },
-      },
-      {
-        name: t('settings.excludeTags.name'),
-        desc: t('settings.excludeTags.desc'),
-        control: { type: 'textarea', key: 'excludeTags' },
-      },
-      {
-        name: t('settings.excludeGlobs.name'),
-        desc: t('settings.excludeGlobs.desc'),
-        control: { type: 'textarea', key: 'excludeGlobs' },
-      },
-      {
-        name: t('settings.frontmatterImageProps.name'),
-        desc: t('settings.frontmatterImageProps.desc'),
-        control: { type: 'textarea', key: 'frontmatterImageProps' },
-      },
-      {
-        name: t('settings.frontmatterBeforeProps.name'),
-        desc: t('settings.frontmatterBeforeProps.desc'),
-        control: { type: 'textarea', key: 'frontmatterBeforeProps' },
-      },
-      {
-        name: t('settings.frontmatterAfterProps.name'),
-        desc: t('settings.frontmatterAfterProps.desc'),
-        control: { type: 'textarea', key: 'frontmatterAfterProps' },
-      },
-      {
-        name: t('settings.excludedFolders.name'),
-        render: (setting) => {
-          setting.setName(t('settings.excludedFolders.name')).setHeading();
-          // Reuse the existing list if there is one. Obsidian re-runs render
-          // callbacks on every settings update — and every save refreshes the
-          // tab — while leaving whatever this callback appended to settingEl
-          // in place. Creating a div unconditionally therefore stacked another
-          // copy of the list on each change, so a single excluded folder would
-          // appear once per save.
-          const existing = setting.settingEl.querySelector(
-            '.intelliscroll-excluded-folders-list'
-          );
-          const list =
-            existing instanceof HTMLElement
-              ? existing
-              : setting.settingEl.createDiv('intelliscroll-excluded-folders-list');
-          this.renderExcludedFolders(list);
-        },
-      },
-      {
-        name: t('settings.addExcludedFolder.name'),
-        desc: t('settings.addExcludedFolder.desc'),
-        render: (setting) => {
-          setting
-            .setName(t('settings.addExcludedFolder.name'))
-            .setDesc(t('settings.addExcludedFolder.desc'));
-          let folderInputEl: HTMLInputElement | null = null;
-          setting.addText((text) => {
-            text.setPlaceholder('4. Archive');
-            folderInputEl = text.inputEl;
-            new FolderSuggest(this.app, text.inputEl);
-          });
-          setting.addButton((button) =>
-            button.setButtonText(t('settings.addExcludedFolder.action')).onClick(() => {
-              const folder = normalizeFolderPath(folderInputEl?.value ?? '');
-              if (!folder || folder === '.') {
-                new Notice(t('settings.notice.folderEmpty'));
-                return;
-              }
-              if (this.flatView().excludeFolders.includes(folder)) {
-                new Notice(t('settings.notice.folderDuplicate'));
-                return;
-              }
-              void this.addExcludedFolder(folder, folderInputEl);
-            })
-          );
-        },
-      },
-      ...this.resurfacingSettings(),
-      // The preset manager lives in its own module: it is a large, mostly
-      // self-contained body of UI, and keeping it here made this file the
-      // bottleneck for any change to it.
+      // Everything from Presets down — the preset selectors, their values, their
+      // modes and their manage rows — is emitted by the preset manager module,
+      // so a group's controls stay together and in one place to edit.
       ...buildPresetSettings(this.plugin, () => {
         this.refreshDeclarativeSettings();
       }),
     ];
-  }
-
-  /**
-   * Controls for the scheduling engine.
-   *
-   * Built conditionally because most of them only make sense for a particular
-   * algorithm: a retention slider is meaningless for Leitner, and grading
-   * controls are meaningless when nothing is being scheduled at all. Showing
-   * them regardless would invite users to configure things that do nothing.
-   */
-  private resurfacingSettings(): SettingDefinitionItem[] {
-    const settings = this.flatView();
-
-    const items: SettingDefinitionItem[] = [
-      {
-        name: t('settings.resurfacing.title'),
-        render: (setting) => {
-          setting.setName(t('settings.resurfacing.title')).setHeading();
-        },
-      },
-      {
-        name: t('settings.algorithm.name'),
-        desc: t('settings.algorithm.desc'),
-        control: {
-          type: 'dropdown',
-          key: 'algorithm',
-          options: algorithmOptions(),
-        },
-      },
-    ];
-
-    if (settings.algorithm === 'off') return items;
-
-    items.push({
-      name: t('settings.gradingMode.name'),
-      desc: t('settings.gradingMode.desc'),
-      control: {
-        type: 'dropdown',
-        key: 'gradingMode',
-        options: gradingModeOptions(),
-      },
-    });
-
-    if (settings.gradingMode !== 'manual') {
-      items.push({
-        name: t('settings.sensitivity.name'),
-        desc: t('settings.sensitivity.desc'),
-        control: {
-          type: 'dropdown',
-          key: 'sensitivity',
-          options: sensitivityOptions(),
-        },
-      });
-    }
-
-    if (settings.algorithm === 'fsrs') {
-      items.push(
-        {
-          name: t('settings.requestRetention.name'),
-          desc: t('settings.requestRetention.desc'),
-          control: {
-            type: 'slider',
-            key: 'requestRetention',
-            min: REQUEST_RETENTION_MIN,
-            max: REQUEST_RETENTION_MAX,
-            step: 0.01,
-            displayFormat: (value: number) => value.toFixed(2),
-          },
-        },
-        {
-          name: t('settings.maximumInterval.name'),
-          desc: t('settings.maximumInterval.desc'),
-          control: {
-            type: 'number',
-            key: 'maximumInterval',
-            min: MAXIMUM_INTERVAL_MIN,
-            max: MAXIMUM_INTERVAL_MAX,
-            step: 1,
-          },
-        },
-        {
-          name: t('settings.enableFuzz.name'),
-          desc: t('settings.enableFuzz.desc'),
-          control: { type: 'toggle', key: 'enableFuzz' },
-        }
-      );
-    }
-
-    return items;
   }
 
   /** The active preset of each group — what the settings page edits. */
@@ -701,31 +412,10 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
     this.refreshDeclarativeSettings();
   }
 
-  private async addExcludedFolder(
-    folder: string,
-    inputEl: HTMLInputElement | null
-  ): Promise<void> {
-    this.flatView().excludeFolders.push(folder);
-    await this.plugin.saveSettingsAndRefreshViews();
-    if (inputEl) inputEl.value = '';
-    this.refreshDeclarativeSettings();
-  }
-
   private refreshDeclarativeSettings(): void {
     if (requireApiVersion('1.13.0')) {
       this.update();
     }
-  }
-
-  private async removeExcludedFolder(
-    folder: string,
-    container: HTMLElement
-  ): Promise<void> {
-    const index = this.flatView().excludeFolders.indexOf(folder);
-    if (index === -1) return;
-    this.flatView().excludeFolders.splice(index, 1);
-    await this.plugin.saveSettingsAndRefreshViews();
-    this.renderExcludedFolders(container);
   }
 
   /**
@@ -742,31 +432,6 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
    */
   display(): void {
     // Intentionally empty. See above.
-  }
-
-  private renderExcludedFolders(container: HTMLElement): void {
-    container.empty();
-
-    if (this.flatView().excludeFolders.length === 0) {
-      container.createDiv({ text: t('settings.excludedFolders.empty') });
-      return;
-    }
-
-    for (const folder of this.flatView().excludeFolders) {
-      const row = container.createDiv('intelliscroll-excluded-folder-item');
-      row.createSpan({ text: folder });
-      row
-        .createEl('button', {
-          text: '×',
-          cls: 'intelliscroll-excluded-folder-remove',
-          attr: {
-            'aria-label': t('settings.excludedFolders.remove', { folder }),
-          },
-        })
-        .addEventListener('click', () => {
-          void this.removeExcludedFolder(folder, container);
-        });
-    }
   }
 
 }
@@ -793,8 +458,4 @@ function parseLines(value: string): string[] {
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-}
-
-function normalizeFolderPath(value: string): string {
-  return normalizePath(value.trim()).replace(/\/+$/, '');
 }

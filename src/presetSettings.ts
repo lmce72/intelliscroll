@@ -1,4 +1,5 @@
 import {
+  AbstractInputSuggest,
   App,
   Modal,
   Notice,
@@ -10,6 +11,7 @@ import {
   normalizePath,
   type SettingDefinitionItem,
 } from 'obsidian';
+import { allAlgorithms } from './algorithms/index.ts';
 import { t } from './i18n.ts';
 // Type-only on purpose: `main.ts` imports `settings.ts`, which delegates here,
 // so a runtime import of the plugin class would close the cycle.
@@ -30,6 +32,10 @@ import {
 import { exportLibrary, exportPreset, importPresets } from './presetIo.ts';
 import {
   FILE_CATEGORIES,
+  MAXIMUM_INTERVAL_MAX,
+  MAXIMUM_INTERVAL_MIN,
+  REQUEST_RETENTION_MAX,
+  REQUEST_RETENTION_MIN,
   isAlgorithmId,
   isRuleMode,
   type AlgorithmPreset,
@@ -79,6 +85,75 @@ function modeOptions(): Record<string, string> {
     blacklist: t('presets.mode.option.blacklist'),
     whitelist: t('presets.mode.option.whitelist'),
   };
+}
+
+/**
+ * Algorithm ids to display names, sourced from the registry itself.
+ *
+ * Built per call: a module-level table would be evaluated once at import, before
+ * the language setting is applied, and the labels would then freeze in whatever
+ * language was active at load time.
+ */
+function algorithmOptions(): Record<string, string> {
+  return Object.fromEntries(
+    allAlgorithms().map((algorithm) => [
+      algorithm.id,
+      algorithm.id === 'off' ? t('presets.algorithm.option.off') : algorithm.label,
+    ])
+  );
+}
+
+function gradingModeOptions(): Record<string, string> {
+  return {
+    auto: t('settings.gradingMode.option.auto'),
+    hybrid: t('settings.gradingMode.option.hybrid'),
+    manual: t('settings.gradingMode.option.manual'),
+  };
+}
+
+function sensitivityOptions(): Record<string, string> {
+  return {
+    conservative: t('settings.sensitivity.option.conservative'),
+    medium: t('settings.sensitivity.option.medium'),
+    aggressive: t('settings.sensitivity.option.aggressive'),
+  };
+}
+
+/** Folder autocomplete for the excluded-folders row. */
+class FolderSuggest extends AbstractInputSuggest<string> {
+  inputEl: HTMLInputElement;
+  private cachedFolders: string[] | null = null;
+
+  constructor(app: App, inputEl: HTMLInputElement) {
+    super(app, inputEl);
+    this.inputEl = inputEl;
+  }
+
+  private getFolders(): string[] {
+    if (this.cachedFolders) return this.cachedFolders;
+
+    this.cachedFolders = this.app.vault
+      .getAllFolders()
+      .map((folder) => folder.path)
+      .filter((path) => path.length > 0);
+    return this.cachedFolders;
+  }
+
+  getSuggestions(inputStr: string): string[] {
+    const lowerInput = inputStr.toLowerCase();
+    return this.getFolders().filter((path) =>
+      path.toLowerCase().includes(lowerInput)
+    );
+  }
+
+  renderSuggestion(path: string, el: HTMLElement): void {
+    el.setText(path);
+  }
+
+  selectSuggestion(path: string): void {
+    this.inputEl.value = path;
+    this.close();
+  }
 }
 
 /**
@@ -863,6 +938,214 @@ function importItem(
   };
 }
 
+// ─── Excluded folders ──────────────────────────────────────────────────────
+
+/**
+ * The excluded-folder list and its add row.
+ *
+ * These are imperative rows rather than declarative controls (the list has no
+ * single value), so both must follow the query-or-create-then-empty pattern:
+ * a declarative `render` callback re-runs on every settings update while its
+ * previous output stays in the DOM. Building the list unconditionally would
+ * stack another copy on each save.
+ */
+function renderExcludedFolders(
+  plugin: IntelliScrollPlugin,
+  container: HTMLElement
+): void {
+  container.empty();
+
+  const folders = plugin.getEffectiveFilter().folders.values;
+  if (folders.length === 0) {
+    container.createDiv({ text: t('settings.excludedFolders.empty') });
+    return;
+  }
+
+  for (const folder of folders) {
+    const row = container.createDiv('intelliscroll-excluded-folder-item');
+    row.createSpan({ text: folder });
+    row
+      .createEl('button', {
+        text: '×',
+        cls: 'intelliscroll-excluded-folder-remove',
+        attr: {
+          'aria-label': t('settings.excludedFolders.remove', { folder }),
+        },
+      })
+      .addEventListener('click', () => {
+        void removeExcludedFolder(plugin, folder, container);
+      });
+  }
+}
+
+async function addExcludedFolder(
+  plugin: IntelliScrollPlugin,
+  refresh: () => void,
+  folder: string,
+  inputEl: HTMLInputElement | null
+): Promise<void> {
+  plugin.getEffectiveFilter().folders.values.push(folder);
+  await plugin.saveSettingsAndRefreshViews();
+  if (inputEl) inputEl.value = '';
+  refresh();
+}
+
+async function removeExcludedFolder(
+  plugin: IntelliScrollPlugin,
+  folder: string,
+  container: HTMLElement
+): Promise<void> {
+  const values = plugin.getEffectiveFilter().folders.values;
+  const index = values.indexOf(folder);
+  if (index === -1) return;
+  values.splice(index, 1);
+  await plugin.saveSettingsAndRefreshViews();
+  renderExcludedFolders(plugin, container);
+}
+
+function normalizeFolderPath(value: string): string {
+  return normalizePath(value.trim()).replace(/\/+$/, '');
+}
+
+function excludedFoldersItem(plugin: IntelliScrollPlugin): SettingDefinitionItem {
+  return {
+    name: t('settings.excludedFolders.name'),
+    render: (setting) => {
+      setting.setName(t('settings.excludedFolders.name')).setHeading();
+      // Reuse the existing list if there is one; re-creating it unconditionally
+      // would stack a copy per save (see the note above).
+      const existing = setting.settingEl.querySelector(
+        '.intelliscroll-excluded-folders-list'
+      );
+      const list =
+        existing instanceof HTMLElement
+          ? existing
+          : setting.settingEl.createDiv('intelliscroll-excluded-folders-list');
+      renderExcludedFolders(plugin, list);
+    },
+  };
+}
+
+function addExcludedFolderItem(
+  plugin: IntelliScrollPlugin,
+  refresh: () => void
+): SettingDefinitionItem {
+  return {
+    name: t('settings.addExcludedFolder.name'),
+    desc: t('settings.addExcludedFolder.desc'),
+    render: (setting) => {
+      setting
+        .setName(t('settings.addExcludedFolder.name'))
+        .setDesc(t('settings.addExcludedFolder.desc'));
+      let folderInputEl: HTMLInputElement | null = null;
+      setting.addText((text) => {
+        text.setPlaceholder('4. Archive');
+        folderInputEl = text.inputEl;
+        new FolderSuggest(plugin.app, text.inputEl);
+      });
+      setting.addButton((button) =>
+        button.setButtonText(t('settings.addExcludedFolder.action')).onClick(() => {
+          const folder = normalizeFolderPath(folderInputEl?.value ?? '');
+          if (!folder || folder === '.') {
+            new Notice(t('settings.notice.folderEmpty'));
+            return;
+          }
+          if (plugin.getEffectiveFilter().folders.values.includes(folder)) {
+            new Notice(t('settings.notice.folderDuplicate'));
+            return;
+          }
+          void addExcludedFolder(plugin, refresh, folder, folderInputEl);
+        })
+      );
+    },
+  };
+}
+
+// ─── Algorithm group ───────────────────────────────────────────────────────
+
+/**
+ * The scheduling controls that sit under the algorithm preset selector.
+ *
+ * Built conditionally because most of them only make sense for a particular
+ * algorithm: a retention slider is meaningless for Leitner, and grading
+ * controls are meaningless when nothing is being scheduled at all. Showing
+ * them regardless would invite users to configure things that do nothing.
+ */
+function algorithmGroupItems(plugin: IntelliScrollPlugin): SettingDefinitionItem[] {
+  const settings = plugin.getEffectiveAlgorithm();
+
+  const items: SettingDefinitionItem[] = [
+    {
+      name: t('settings.algorithm.name'),
+      desc: t('settings.algorithm.desc'),
+      control: {
+        type: 'dropdown',
+        key: 'algorithm',
+        options: algorithmOptions(),
+      },
+    },
+  ];
+
+  if (settings.algorithm === 'off') return items;
+
+  items.push({
+    name: t('settings.gradingMode.name'),
+    desc: t('settings.gradingMode.desc'),
+    control: {
+      type: 'dropdown',
+      key: 'gradingMode',
+      options: gradingModeOptions(),
+    },
+  });
+
+  if (settings.gradingMode !== 'manual') {
+    items.push({
+      name: t('settings.sensitivity.name'),
+      desc: t('settings.sensitivity.desc'),
+      control: {
+        type: 'dropdown',
+        key: 'sensitivity',
+        options: sensitivityOptions(),
+      },
+    });
+  }
+
+  if (settings.algorithm === 'fsrs') {
+    items.push(
+      {
+        name: t('settings.requestRetention.name'),
+        desc: t('settings.requestRetention.desc'),
+        control: {
+          type: 'slider',
+          key: 'requestRetention',
+          min: REQUEST_RETENTION_MIN,
+          max: REQUEST_RETENTION_MAX,
+          step: 0.01,
+          displayFormat: (value: number) => value.toFixed(2),
+        },
+      },
+      {
+        name: t('settings.maximumInterval.name'),
+        desc: t('settings.maximumInterval.desc'),
+        control: {
+          type: 'number',
+          key: 'maximumInterval',
+          min: MAXIMUM_INTERVAL_MIN,
+          max: MAXIMUM_INTERVAL_MAX,
+          step: 1,
+        },
+      },
+      {
+        name: t('settings.enableFuzz.name'),
+        desc: t('settings.enableFuzz.desc'),
+        control: { type: 'toggle', key: 'enableFuzz' },
+      }
+    );
+  }
+
+  return items;
+}
+
 /** The declarative settings items for the whole preset manager. */
 export function buildPresetSettings(
   plugin: IntelliScrollPlugin,
@@ -872,6 +1155,7 @@ export function buildPresetSettings(
 
   const items: SettingDefinitionItem[] = [];
 
+  // ─── Presets ─────────────────────────────────────────────────────────────
   items.push(heading(t('presets.section.title'), t('presets.section.desc')));
 
   // Total selector first: it is the coarse control, and choosing one drives the
@@ -891,6 +1175,10 @@ export function buildPresetSettings(
   items.push(crudItem(plugin, refresh, 'total'));
 
   // ─── Filter preset ───────────────────────────────────────────────────────
+  // Each rule keeps its mode dropdown next to the list it reads: the two halves
+  // of one concept were previously in two unrelated places, which read as
+  // duplication rather than as one control.
+  items.push(heading(t('presets.filter.title')));
   items.push({
     name: t('presets.activeFilter.name'),
     desc: t('presets.activeFilter.desc'),
@@ -905,10 +1193,17 @@ export function buildPresetSettings(
     desc: t('presets.folders.desc'),
     control: { type: 'dropdown', key: 'folderMode', options: modeOptions() },
   });
+  items.push(excludedFoldersItem(plugin));
+  items.push(addExcludedFolderItem(plugin, refresh));
   items.push({
     name: t('presets.tags.name'),
     desc: t('presets.tags.desc'),
     control: { type: 'dropdown', key: 'tagMode', options: modeOptions() },
+  });
+  items.push({
+    name: t('settings.excludeTags.name'),
+    desc: t('settings.excludeTags.desc'),
+    control: { type: 'textarea', key: 'excludeTags' },
   });
   items.push({
     name: t('presets.globs.name'),
@@ -916,19 +1211,14 @@ export function buildPresetSettings(
     control: { type: 'dropdown', key: 'globMode', options: modeOptions() },
   });
   items.push({
+    name: t('settings.excludeGlobs.name'),
+    desc: t('settings.excludeGlobs.desc'),
+    control: { type: 'textarea', key: 'excludeGlobs' },
+  });
+  items.push({
     name: t('presets.fileTypes.name'),
     desc: t('presets.fileTypes.desc'),
     control: { type: 'dropdown', key: 'fileTypeMode', options: modeOptions() },
-  });
-  items.push({
-    name: t('presets.ignore.name'),
-    desc: t('presets.ignore.desc'),
-    control: { type: 'dropdown', key: 'ignoreMode', options: modeOptions() },
-  });
-  items.push({
-    name: t('presets.ignorePaths.name'),
-    desc: t('presets.ignorePaths.desc'),
-    control: { type: 'textarea', key: 'ignorePaths' },
   });
   items.push(
     heading(
@@ -943,13 +1233,42 @@ export function buildPresetSettings(
       control: { type: 'toggle', key: entry.key },
     });
   }
+  items.push({
+    name: t('presets.ignore.name'),
+    desc: t('presets.ignore.desc'),
+    control: { type: 'dropdown', key: 'ignoreMode', options: modeOptions() },
+  });
+  items.push({
+    name: t('presets.ignorePaths.name'),
+    desc: t('presets.ignorePaths.desc'),
+    control: { type: 'textarea', key: 'ignorePaths' },
+  });
+  items.push({
+    name: t('settings.searchQuery.name'),
+    desc: t('settings.searchQuery.desc'),
+    control: {
+      type: 'text',
+      key: 'searchQuery',
+      placeholder: 'tag:#work [status:Draft]',
+    },
+  });
+  items.push({
+    name: t('settings.includeMediaOnlyNotes.name'),
+    desc: t('settings.includeMediaOnlyNotes.desc'),
+    control: { type: 'toggle', key: 'includeMediaOnlyNotes' },
+  });
+  items.push({
+    name: t('settings.showNonMarkdownFiles.name'),
+    desc: t('settings.showNonMarkdownFiles.desc'),
+    control: { type: 'toggle', key: 'showNonMarkdownFiles' },
+  });
   items.push(crudItem(plugin, refresh, 'filter'));
 
   // ─── Algorithm preset ────────────────────────────────────────────────────
-  // The engine dropdown itself lives in the settings tab's resurfacing section
-  // alongside grading, sensitivity and the FSRS parameters. Rendering it here
-  // too would show the same row twice; this module owns *which* preset is
-  // active, that one owns *what is in* it.
+  // The selector says *which* algorithm preset is active; the controls under it
+  // say *what is in* that preset. Kept together so the two halves never drift
+  // into separate sections.
+  items.push(heading(t('presets.algorithm.title')));
   items.push({
     name: t('presets.activeAlgorithm.name'),
     desc: t('presets.activeAlgorithm.desc'),
@@ -959,9 +1278,11 @@ export function buildPresetSettings(
       options: nameOptions(library.algorithms),
     },
   });
+  items.push(...algorithmGroupItems(plugin));
   items.push(crudItem(plugin, refresh, 'algorithm'));
 
   // ─── Display preset ──────────────────────────────────────────────────────
+  items.push(heading(t('presets.display.title')));
   items.push({
     name: t('presets.activeDisplay.name'),
     desc: t('presets.activeDisplay.desc'),
@@ -970,6 +1291,57 @@ export function buildPresetSettings(
       key: 'activeDisplayPreset',
       options: nameOptions(library.displays),
     },
+  });
+  items.push({
+    name: t('settings.simplifiedView.name'),
+    desc: t('settings.simplifiedView.desc'),
+    control: { type: 'toggle', key: 'simplifiedView' },
+  });
+  items.push({
+    name: t('settings.reduceAnimations.name'),
+    desc: t('settings.reduceAnimations.desc'),
+    control: { type: 'toggle', key: 'reduceAnimations' },
+  });
+  items.push({
+    name: t('settings.previewSize.name'),
+    desc: t('settings.previewSize.desc'),
+    control: {
+      type: 'dropdown',
+      key: 'previewSize',
+      options: {
+        small: t('settings.previewSize.option.small'),
+        medium: t('settings.previewSize.option.medium'),
+        large: t('settings.previewSize.option.large'),
+      },
+    },
+  });
+  items.push({
+    name: t('settings.openNoteBehavior.name'),
+    desc: t('settings.openNoteBehavior.desc'),
+    control: {
+      type: 'dropdown',
+      key: 'openNoteBehavior',
+      options: {
+        tab: t('settings.openNoteBehavior.option.tab'),
+        reuse: t('settings.openNoteBehavior.option.reuse'),
+        window: t('settings.openNoteBehavior.option.window'),
+      },
+    },
+  });
+  items.push({
+    name: t('settings.frontmatterImageProps.name'),
+    desc: t('settings.frontmatterImageProps.desc'),
+    control: { type: 'textarea', key: 'frontmatterImageProps' },
+  });
+  items.push({
+    name: t('settings.frontmatterBeforeProps.name'),
+    desc: t('settings.frontmatterBeforeProps.desc'),
+    control: { type: 'textarea', key: 'frontmatterBeforeProps' },
+  });
+  items.push({
+    name: t('settings.frontmatterAfterProps.name'),
+    desc: t('settings.frontmatterAfterProps.desc'),
+    control: { type: 'textarea', key: 'frontmatterAfterProps' },
   });
   items.push(crudItem(plugin, refresh, 'display'));
 

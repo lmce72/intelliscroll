@@ -13,7 +13,7 @@ import type { MessageModule } from '../i18n.ts';
  */
 export const messages: MessageModule = {
   en: {
-    'presets.section.title': 'Preset manager',
+    'presets.section.title': 'Presets',
     'presets.section.desc':
       'Configuration is stored as named presets. A total preset bundles one filter, one algorithm and one display preset.',
 
@@ -21,6 +21,10 @@ export const messages: MessageModule = {
     'presets.group.algorithm': 'algorithm',
     'presets.group.display': 'display',
     'presets.group.total': 'total',
+
+    'presets.filter.title': 'Filter preset',
+    'presets.algorithm.title': 'Algorithm preset',
+    'presets.display.title': 'Display preset',
 
     'presets.activeFilter.name': 'Filter preset',
     'presets.activeFilter.desc':
@@ -125,7 +129,7 @@ export const messages: MessageModule = {
     'presets.notice.copyFailed': 'Could not copy to the clipboard.',
   },
   zh: {
-    'presets.section.title': '预设管理',
+    'presets.section.title': '预设',
     'presets.section.desc':
       '配置以具名预设保存。总预先把过滤、算法、显示各一个预设组合在一起。',
 
@@ -133,6 +137,10 @@ export const messages: MessageModule = {
     'presets.group.algorithm': '算法',
     'presets.group.display': '显示',
     'presets.group.total': '总',
+
+    'presets.filter.title': '过滤预设',
+    'presets.algorithm.title': '算法预设',
+    'presets.display.title': '显示预设',
 
     'presets.activeFilter.name': '过滤预设',
     'presets.activeFilter.desc':

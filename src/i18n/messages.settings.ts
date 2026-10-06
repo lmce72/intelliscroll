@@ -21,6 +21,8 @@ export const messages: MessageModule = {
     'settings.language.option.en': 'English',
     'settings.language.option.zh': '简体中文',
 
+    'settings.feed.title': 'Feed',
+
     'settings.batchSize.name': 'Batch size',
     'settings.batchSize.desc': 'Number of cards to show per reshuffle',
 
@@ -91,8 +93,6 @@ export const messages: MessageModule = {
       'Excluded folder path cannot be empty or the vault root',
     'settings.notice.folderDuplicate': 'That folder is already excluded',
 
-    'settings.resurfacing.title': 'Resurfacing',
-
     'settings.algorithm.name': 'Algorithm',
     'settings.algorithm.desc':
       'Decide which notes resurface and when. Off keeps the original shuffled feed and writes nothing.',
@@ -131,6 +131,8 @@ export const messages: MessageModule = {
     'settings.language.option.auto': '自动',
     'settings.language.option.en': 'English',
     'settings.language.option.zh': '简体中文',
+
+    'settings.feed.title': '卡片流',
 
     'settings.batchSize.name': '每批卡片数',
     'settings.batchSize.desc': '每次重掷时展示多少张卡片',
@@ -197,8 +199,6 @@ export const messages: MessageModule = {
 
     'settings.notice.folderEmpty': '排除的文件夹路径不能为空，也不能是库根目录',
     'settings.notice.folderDuplicate': '该文件夹已在排除列表中',
-
-    'settings.resurfacing.title': '重浮',
 
     'settings.algorithm.name': '算法',
     'settings.algorithm.desc':
