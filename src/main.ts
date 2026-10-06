@@ -137,13 +137,25 @@ export default class IntelliScrollPlugin extends Plugin {
         typeof current.enableFuzz === 'boolean'
           ? current.enableFuzz
           : FSRS_DEFAULT_TUNABLES.enableFuzz;
+      // Fails closed: switching this on unbidden would start resurfacing notes
+      // repeatedly within a single sitting, so an unreadable value means off.
+      const enableShortTerm =
+        current.enableShortTerm === true
+          ? true
+          : FSRS_DEFAULT_TUNABLES.enableShortTerm;
 
       if (
         requestRetention !== current.requestRetention ||
         maximumInterval !== current.maximumInterval ||
-        enableFuzz !== current.enableFuzz
+        enableFuzz !== current.enableFuzz ||
+        enableShortTerm !== current.enableShortTerm
       ) {
-        preset.fsrsTunables = { requestRetention, maximumInterval, enableFuzz };
+        preset.fsrsTunables = {
+          requestRetention,
+          maximumInterval,
+          enableFuzz,
+          enableShortTerm,
+        };
         tunablesChanged = true;
       }
     }

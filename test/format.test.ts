@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   describeInterval,
+  describeReadableInterval,
   formatRetention,
   INTERVAL_UNITS,
   RETENTION_STEP,
@@ -233,4 +234,41 @@ test('describeInterval output carries numbers and a unit identity only', () => {
   assert.equal(typeof display.decimals, 'number');
   const unit: IntervalUnit = display.unit;
   assert.ok(INTERVAL_UNITS.includes(unit));
+});
+
+// ─── Stepping down to a readable unit ───────────────────────────────────────
+
+test('a sub-day interval steps down rather than reading as a fraction of a day', () => {
+  // A one-minute rung under a "days" setting would otherwise render as
+  // "0.0007 days", which is a number nobody parses — and the whole point of
+  // offering a minute-scale rung is that it is readable.
+  const oneMinute = 1 / 1440;
+  const display = describeReadableInterval(oneMinute, 'days');
+
+  assert.equal(display.unit, 'minutes');
+  assert.equal(display.value, 1);
+});
+
+test('stepping down stops as soon as the requested unit means something', () => {
+  // Twelve hours is legible in hours, so it never reaches minutes; three days
+  // is legible in days and is left exactly where it was.
+  assert.equal(describeReadableInterval(0.5, 'days').unit, 'hours');
+  assert.equal(describeReadableInterval(3, 'days').unit, 'days');
+  assert.equal(describeReadableInterval(3, 'days').value, 3);
+});
+
+test('stepping down never steps back up', () => {
+  // A ladder shown in minutes stays in minutes even when a rung is days long,
+  // because that is the scale the reader asked to think in.
+  const display = describeReadableInterval(30, 'minutes');
+  assert.equal(display.unit, 'minutes');
+  assert.equal(display.value, 30 * 1440);
+});
+
+test('stepping down leaves unusable input renderable', () => {
+  for (const bad of [Number.NaN, -1, 0, Number.POSITIVE_INFINITY]) {
+    const display = describeReadableInterval(bad, 'days');
+    assert.equal(Number.isFinite(display.value), true);
+    assert.equal(display.value, 0);
+  }
 });

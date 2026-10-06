@@ -89,7 +89,29 @@ export function selectBatch(
 
   for (const preview of candidates) {
     const viewedAt = lastViewedAt.get(preview.path);
-    if (viewedAt !== undefined && now - viewedAt < COOLDOWN_MS) {
+    const state = states?.[preview.path];
+
+    // A note that has been reviewed *since it was last shown* is exempt from
+    // the cooldown: the reader has already said when they want it back, and the
+    // schedule is the better authority on that than a fixed delay.
+    //
+    // This is what makes a sub-day interval meaningful. Without it a note rated
+    // "again in a minute" would still be held back for the full cooldown, so
+    // the minute would be decorative. Notes that were merely scrolled past are
+    // untouched — reaching this needs a review, and a review moves the due date,
+    // so an automatically graded note still loses on priority to anything
+    // genuinely overdue.
+    const reviewedSinceView =
+      state !== undefined &&
+      state.reviews > 0 &&
+      viewedAt !== undefined &&
+      state.lastReviewedAt >= viewedAt;
+
+    if (
+      viewedAt !== undefined &&
+      now - viewedAt < COOLDOWN_MS &&
+      !reviewedSinceView
+    ) {
       coolingDown.push(preview);
       continue;
     }

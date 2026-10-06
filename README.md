@@ -168,6 +168,12 @@ The scheduling engine.
   retention control
 - **Fuzz due dates** (FSRS): Spread due dates slightly so notes do not all
   return on the same day
+- **Learning steps** (FSRS, default off): Use FSRS's 1-minute and 10-minute
+  steps. This is the **only** way to schedule a note sooner than a day —
+  FSRS's day-scale path floors at one day and cannot express anything shorter —
+  so it is what puts a one-minute rung at the bottom of the ladder. It also
+  means a note you push back comes round again inside the same sitting, which
+  is why it is off by default
 
 The retention control is bounded by the tier-gap rule above rather than by its
 full 0.70–0.97 range, because outside that range the top tiers stop being

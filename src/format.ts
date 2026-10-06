@@ -25,6 +25,12 @@ const UNITS_PER_DAY: Record<IntervalUnit, number> = {
   minutes: 1440,
 };
 
+/**
+ * The units from largest to smallest, which is the order a value is stepped
+ * down through when it does not fit the requested one.
+ */
+const UNITS_PER_DAY_ORDER: readonly IntervalUnit[] = ['days', 'hours', 'minutes'];
+
 export interface IntervalDisplay {
   /** Already rounded to `decimals`. */
   value: number;
@@ -92,6 +98,34 @@ export function describeInterval(
   }
 
   return { value, unit, decimals };
+}
+
+/**
+ * Describe an interval in `unit`, stepping down to a smaller unit when the
+ * value would not be readable in the one asked for.
+ *
+ * The unit is a setting, and a setting cannot be right at both ends of a ladder
+ * that spans a minute and a month: with days selected, a one-minute rung reads
+ * as "0.0007 days", which is a number nobody parses. Stepping down only when
+ * the requested unit would give a value below one keeps the reader's choice
+ * wherever it still means something and rescues it where it does not — and it
+ * never steps *up*, so a ladder shown in minutes stays in minutes.
+ */
+export function describeReadableInterval(
+  intervalDays: number,
+  unit: IntervalUnit
+): IntervalDisplay {
+  let index = UNITS_PER_DAY_ORDER.indexOf(unit);
+  if (index < 0) index = 0;
+
+  let display = describeInterval(intervalDays, UNITS_PER_DAY_ORDER[index]!);
+
+  while (display.value < 1 && index < UNITS_PER_DAY_ORDER.length - 1) {
+    index += 1;
+    display = describeInterval(intervalDays, UNITS_PER_DAY_ORDER[index]!);
+  }
+
+  return display;
 }
 
 /** Smallest nudge the interval-tuning controls apply to retention. */

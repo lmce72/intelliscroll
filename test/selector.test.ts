@@ -412,3 +412,97 @@ test('scheduling with no state at all behaves like a shuffle', () => {
   assert.equal(selected.length, 20);
   assert.equal(new Set(selected.map((p) => p.path)).size, 20, 'no duplicates');
 });
+
+// ─── The cooldown exemption for rated notes ─────────────────────────────────
+
+test('a note reviewed since it was last shown is exempt from the cooldown', () => {
+  // Without this a note rated "again in a minute" would still be held back for
+  // the full half hour, which makes a sub-day rung decorative.
+  const items = previews(2);
+  const history = viewedSome(items, 60 * 1000);
+  const states = {
+    'n0.md': state({ lastReviewedAt: NOW - 30 * 1000, due: NOW + 60 * 1000 }),
+  };
+
+  const selected = selectBatch(items, history, 2, NOW, {
+    algorithm: 'fsrs',
+    states,
+    rng: mulberry32(7),
+  });
+
+  assert.deepEqual(
+    selected.map((item) => item.path),
+    ['n0.md'],
+    'the rated note returns while the merely-viewed one still waits'
+  );
+});
+
+test('the exemption needs a review after the view, not merely any review', () => {
+  // Reviewed five minutes ago, then shown one minute ago: the view is the more
+  // recent event, so nothing has been said about it since and the cooldown
+  // still applies.
+  const items = previews(2);
+  const history = [{ path: 'n0.md', viewedAt: NOW - 60 * 1000 }];
+  const states = {
+    'n0.md': state({ lastReviewedAt: NOW - 5 * 60 * 1000, due: NOW + DAY_MS }),
+  };
+
+  const selected = selectBatch(items, history, 2, NOW, {
+    algorithm: 'fsrs',
+    states,
+    rng: mulberry32(7),
+  });
+
+  assert.deepEqual(
+    selected.map((item) => item.path),
+    ['n1.md'],
+    'the stale review does not buy an exemption'
+  );
+});
+
+test('an unreviewed note in cooldown is still held back', () => {
+  // The behaviour the exemption must not weaken.
+  const items = previews(2);
+  const history = [{ path: 'n0.md', viewedAt: NOW - 60 * 1000 }];
+
+  const selected = selectBatch(items, history, 2, NOW, {
+    algorithm: 'fsrs',
+    states: {},
+    rng: mulberry32(7),
+  });
+
+  assert.deepEqual(selected.map((item) => item.path), ['n1.md']);
+});
+
+test('the cooldown still expires on its own half-hour boundary', () => {
+  // The exemption is an alternative route out of the cooldown, not a
+  // replacement for it: a note nobody has rated becomes available again when
+  // the half hour is up, exactly as before.
+  const items = previews(2);
+
+  const cooling = selectBatch(
+    items,
+    [{ path: 'n0.md', viewedAt: NOW - 29 * 60 * 1000 }],
+    2,
+    NOW,
+    { algorithm: 'fsrs', states: {}, rng: mulberry32(7) }
+  );
+  assert.equal(
+    cooling.some((item) => item.path === 'n0.md'),
+    false,
+    'still cooling one minute short of the half hour'
+  );
+
+  const free = selectBatch(
+    items,
+    [{ path: 'n0.md', viewedAt: NOW - 31 * 60 * 1000 }],
+    2,
+    NOW,
+    { algorithm: 'fsrs', states: {}, rng: mulberry32(7) }
+  );
+  assert.equal(
+    free.some((item) => item.path === 'n0.md'),
+    true,
+    'available once the half hour is up'
+  );
+});

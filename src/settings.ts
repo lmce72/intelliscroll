@@ -271,6 +271,8 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         return settings.fsrsTunables.maximumInterval;
       case 'enableFuzz':
         return settings.fsrsTunables.enableFuzz;
+      case 'enableShortTerm':
+        return settings.fsrsTunables.enableShortTerm;
       case 'language':
         return this.plugin.data.settings.language;
       case 'activeFilterPreset':
@@ -435,6 +437,13 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         algorithm.fsrsTunables = {
           ...algorithm.fsrsTunables,
           enableFuzz: value,
+        };
+        break;
+      case 'enableShortTerm':
+        if (typeof value !== 'boolean') return;
+        algorithm.fsrsTunables = {
+          ...algorithm.fsrsTunables,
+          enableShortTerm: value,
         };
         break;
       case 'language':
@@ -609,6 +618,7 @@ function withTuning(
 
     out.push(item);
     if (key === 'maximumInterval') out.push(topGapDaysItem());
+    if (key === 'enableFuzz') out.push(shortTermItem());
     if (key === 'previewSize') out.push(intervalUnitItem());
     if (key === 'openNoteBehavior') out.push(tierCountItem());
     if (key === 'reduceAnimations') out.push(readPromptItem());
@@ -786,6 +796,22 @@ function tierCountItem(): SettingDefinitionItem {
  * expands under the reader's cursor, so turning it on is a choice they make,
  * never something an upgrade does to them.
  */
+/**
+ * The FSRS learning-steps switch — the only route to an interval below a day.
+ *
+ * Presented as a warning rather than a plain toggle, because switching it on
+ * changes the feed's character: a note rated into the learning steps comes back
+ * in a minute and again in ten, inside the same sitting. That is the point, but
+ * it is not what the rest of the plugin does.
+ */
+function shortTermItem(): SettingDefinitionItem {
+  return {
+    name: t('settings.enableShortTerm.name'),
+    desc: t('settings.enableShortTerm.desc'),
+    control: { type: 'toggle', key: 'enableShortTerm' },
+  };
+}
+
 function readPromptItem(): SettingDefinitionItem {
   return {
     name: t('settings.promptRatingAfterRead.name'),

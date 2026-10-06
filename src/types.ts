@@ -69,12 +69,25 @@ export interface FsrsTunables {
   maximumInterval: number;
   /** Jitter due dates so batches do not cluster on one day. */
   enableFuzz: boolean;
+  /**
+   * Use FSRS's short-term learning steps (its defaults are 1 minute and 10
+   * minutes).
+   *
+   * Off by default, and the reason is in the feed's nature rather than in the
+   * algorithm: a whole note is re-read, not drilled, so the minute-scale steps
+   * resurface the same note several times in one sitting. What they buy is the
+   * only way to get an interval below a day — FSRS's day-scale path floors at
+   * `max(1, round(...))` and cannot express one. A vault that wants a
+   * "show me again in a minute" rung turns this on and accepts the repeats.
+   */
+  enableShortTerm: boolean;
 }
 
 export const FSRS_DEFAULT_TUNABLES: FsrsTunables = {
   requestRetention: 0.9,
   maximumInterval: 30,
   enableFuzz: true,
+  enableShortTerm: false,
 };
 
 export const REQUEST_RETENTION_MIN = 0.7;

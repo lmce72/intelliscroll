@@ -331,3 +331,50 @@ test('FSRS applies its cap to hard, then forces good and easy past it', () => {
   assert.equal(good, hard + 1, 'good is pushed one day past it');
   assert.equal(easy, good + 1, 'easy is pushed one day past good');
 });
+
+// ─── Learning steps (the sub-day rungs) ─────────────────────────────────────
+
+test('learning steps are the only route to an interval under a day', () => {
+  const algorithm = getAlgorithm('fsrs');
+
+  // The day-scale path floors at a day: ts-fsrs computes
+  // `max(1, round(stability * modifier))`, so nothing sub-day can come out of
+  // it however the retention is set.
+  for (const step of algorithm.ladder(null, context())) {
+    assert.ok(
+      step.intervalDays >= 1,
+      `day-scale floors at a day, got ${step.intervalDays}`
+    );
+  }
+
+  const withSteps = algorithm.ladder(
+    null,
+    context({
+      fsrs: {
+        ...FSRS_DEFAULT_TUNABLES,
+        enableFuzz: false,
+        enableShortTerm: true,
+      },
+    })
+  );
+
+  const shortest = withSteps[0]!;
+  assert.equal(
+    Math.round(shortest.intervalDays * 1440),
+    1,
+    'with learning steps the bottom rung is exactly one minute'
+  );
+});
+
+test('learning steps are off unless a preset asks for them', () => {
+  // Switching this on changes what the feed does inside a single sitting, so
+  // it must never arrive by default or by accident.
+  assert.equal(FSRS_DEFAULT_TUNABLES.enableShortTerm, false);
+
+  const algorithm = getAlgorithm('fsrs');
+  const shortest = algorithm.ladder(null, context())[0]!;
+  assert.ok(
+    shortest.intervalDays >= 1,
+    'the default ladder never reaches below a day'
+  );
+});

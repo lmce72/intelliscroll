@@ -156,6 +156,9 @@ export const messages: MessageModule = {
     'settings.enableFuzz.name': 'Fuzz due dates',
     'settings.enableFuzz.desc':
       'Spread due dates slightly so notes do not all return on the same day',
+    'settings.enableShortTerm.name': 'Learning steps (intervals under a day)',
+    'settings.enableShortTerm.desc':
+      'Use FSRS’s 1-minute and 10-minute steps. This is the only way to schedule a note sooner than a day, so it is what puts a one-minute rung at the bottom of the ladder. It also means a note you push back comes round again within the same sitting.',
   },
   zh: {
     'settings.header.title': 'IntelliScroll 设置',
@@ -296,5 +299,8 @@ export const messages: MessageModule = {
 
     'settings.enableFuzz.name': '到期日模糊化',
     'settings.enableFuzz.desc': '略微分散到期日，避免所有笔记都在同一天回来',
+    'settings.enableShortTerm.name': '学习步长（一天以内的间隔）',
+    'settings.enableShortTerm.desc':
+      '使用 FSRS 的 1 分钟与 10 分钟步长。这是让笔记早于一天回来的唯一方式，也是阶梯底部那个「1 分钟」档位的来源。开启后，你往后推的笔记会在同一次阅读里再次出现。',
   },
 };

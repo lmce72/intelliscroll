@@ -503,6 +503,12 @@ export function retentionBounds(
 export function backfillPresetDefaults(library: PresetLibrary): void {
   for (const preset of library.algorithms) {
     preset.topGapDays = normalizeTopGapDays(preset.topGapDays);
+    // Fails closed, like the read prompt: switching this on by accident would
+    // resurface notes repeatedly inside one sitting.
+    preset.fsrsTunables = {
+      ...preset.fsrsTunables,
+      enableShortTerm: preset.fsrsTunables?.enableShortTerm === true,
+    };
     if (preset.sensitivityThresholds !== undefined) {
       preset.sensitivityThresholds = normalizeSensitivityThresholds(
         preset.sensitivityThresholds
@@ -845,6 +851,9 @@ export function libraryFromUnknownLegacy(
       requestRetention: tunables.requestRetention as number,
       maximumInterval: tunables.maximumInterval as number,
       enableFuzz: boolOr(tunables.enableFuzz, true),
+      // Imported presets fail closed here too: a preset arriving with a
+      // truthy-but-wrong value must not start resurfacing notes repeatedly.
+      enableShortTerm: tunables.enableShortTerm === true,
     };
   }
 

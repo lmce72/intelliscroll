@@ -53,6 +53,7 @@ function schedulerFor(tunables: FsrsTunables): ReturnType<typeof fsrs> {
     tunables.requestRetention,
     tunables.maximumInterval,
     tunables.enableFuzz,
+    tunables.enableShortTerm,
   ].join('|');
 
   if (cachedScheduler === null || cachedKey !== key) {
@@ -61,11 +62,12 @@ function schedulerFor(tunables: FsrsTunables): ReturnType<typeof fsrs> {
         request_retention: tunables.requestRetention,
         maximum_interval: tunables.maximumInterval,
         enable_fuzz: tunables.enableFuzz,
-        // A whole note is re-read, not drilled, so it has no 10-minute
-        // learning steps. Enabling them would resurface the same note several
-        // times in one sitting, which is exactly what a scroll feed must not
-        // do.
-        enable_short_term: false,
+        // Off by default, and deliberately so: a whole note is re-read, not
+        // drilled, so minute-scale learning steps resurface the same note
+        // several times in one sitting. See the note on
+        // `FsrsTunables.enableShortTerm` — it is the only way to an interval
+        // below a day, which is why it is reachable at all.
+        enable_short_term: tunables.enableShortTerm,
       })
     );
     cachedKey = key;

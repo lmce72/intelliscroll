@@ -12,7 +12,7 @@ import {
 import { expandTiers, type Tier } from './tiers.ts';
 import {
   RETENTION_STEP,
-  describeInterval,
+  describeReadableInterval,
   type IntervalUnit,
 } from './format.ts';
 import {
@@ -119,7 +119,7 @@ const SINGULAR_UNIT_KEY: Record<IntervalUnit, string> = {
  * `describeInterval` is what keeps a sub-unit value from rendering as "0".
  */
 export function formatTierInterval(tier: Tier, unit: IntervalUnit): string {
-  const display = describeInterval(tier.intervalDays, unit);
+  const display = describeReadableInterval(tier.intervalDays, unit);
   const singular = display.decimals === 0 && display.value === 1;
   const key = singular ? SINGULAR_UNIT_KEY[display.unit] : display.unit;
   return t(`tuning.interval.${key}`, {
