@@ -716,7 +716,10 @@ export class IntelliScrollView extends ItemView {
     // Filter preset button: switch which notes are eligible without leaving the
     // feed, and adjust one temporarily.
     const filterBtn = controls.createEl('button');
-    filterBtn.className = 'intelliscroll-filter-btn';
+    // `intelliscroll-btn-with-label` is the shared shape for a button holding
+    // an icon and text; the square-icon rule the other controls share pins a
+    // fixed width and would clip the name.
+    filterBtn.className = 'intelliscroll-btn-with-label intelliscroll-filter-btn';
     setIcon(filterBtn, 'filter');
     // The name is the point of this button: an icon alone cannot say which of
     // several filter presets is in force, which is the one thing the reader

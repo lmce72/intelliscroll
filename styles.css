@@ -38,7 +38,6 @@
 .intelliscroll-reshuffle-btn,
 .intelliscroll-back-btn,
 .intelliscroll-tune-btn,
-.intelliscroll-filter-btn,
 .intelliscroll-save-preset-btn,
 .intelliscroll-settings-btn,
 .intelliscroll-guide-btn {
@@ -58,7 +57,6 @@
 .intelliscroll-reshuffle-btn:hover,
 .intelliscroll-back-btn:hover:not(:disabled),
 .intelliscroll-tune-btn:hover,
-.intelliscroll-filter-btn:hover,
 .intelliscroll-save-preset-btn:hover:not(:disabled),
 .intelliscroll-settings-btn:hover,
 .intelliscroll-guide-btn:hover {
@@ -957,13 +955,21 @@ button.intelliscroll-tier-row:hover {
   font-size: var(--font-ui-smaller);
 }
 
-/* The filter button carries the active preset's name, so it cannot sit in the
-   shared square-icon rule above. It keeps the icon and grows to fit the text,
-   capped so a long preset name cannot push the other controls off the row. */
-.intelliscroll-filter-btn {
+/* ─── Buttons that carry an icon and a label ───────────────────────────────
+   The square-icon rule above pins a fixed width, which is right for a button
+   holding one glyph and wrong for anything with text in it: the label gets
+   clipped and neither element ends up centred. These buttons size to their
+   content instead, up to a cap so a long preset name cannot push the rest of
+   the row off the pane.
+
+   Two things make the ellipsis actually work, and both are easy to omit:
+   `width: auto` to undo the fixed width, and `min-width: 0` on the label so a
+   flex child is allowed to shrink below its content. */
+.intelliscroll-btn-with-label {
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  width: auto;
   max-width: 14rem;
   height: 2rem;
   padding: 0.25rem 0.5rem;
@@ -972,15 +978,27 @@ button.intelliscroll-tier-row:hover {
   background: transparent;
   cursor: pointer;
   transition: background-color 0.2s;
+  line-height: 1;
 }
 
-.intelliscroll-filter-btn:hover {
+.intelliscroll-btn-with-label:hover {
   background-color: var(--background-modifier-hover);
 }
 
-.intelliscroll-filter-btn .intelliscroll-preset-name {
+/* The glyph keeps the size it has in the icon-only buttons, and never
+   squashes when the label is long. */
+.intelliscroll-btn-with-label > svg {
+  flex: 0 0 auto;
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.intelliscroll-btn-with-label .intelliscroll-preset-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
+  color: var(--text-muted);
 }
