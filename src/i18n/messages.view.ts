@@ -10,6 +10,7 @@ import type { MessageModule } from '../i18n.ts';
  */
 export const messages: MessageModule = {
   en: {
+    'view.path.vaultRoot': '(vault root)',
     'view.title': 'IntelliScroll',
     'view.displayText': 'IntelliScroll',
     'view.feed.label': 'IntelliScroll',
@@ -92,6 +93,7 @@ export const messages: MessageModule = {
     'view.help.show': 'Show this help',
   },
   zh: {
+    'view.path.vaultRoot': '（仓库根目录）',
     'view.title': 'IntelliScroll',
     'view.displayText': 'IntelliScroll',
     'view.feed.label': 'IntelliScroll',

@@ -1979,7 +1979,15 @@ export class IntelliScrollView extends ItemView {
     // tells you which folder an entry in that menu refers to, so the button
     // belongs next to it rather than up in the title row.
     const pathRow = card.createDiv('intelliscroll-card-pathrow');
-    pathRow.createSpan({ cls: 'intelliscroll-card-path', text: preview.path });
+    // The folder only: the title above already is the filename, so repeating
+    // it here would say nothing new.
+    const folder = preview.path.includes('/')
+      ? preview.path.slice(0, preview.path.lastIndexOf('/'))
+      : '';
+    pathRow.createSpan({
+      cls: 'intelliscroll-card-path',
+      text: folder.length > 0 ? folder : t('view.path.vaultRoot'),
+    });
     this.renderIgnoreButton(pathRow, preview);
 
     // Image (lazy loaded)
