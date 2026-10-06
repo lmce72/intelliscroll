@@ -66,6 +66,11 @@ note file is modified — that is the property the test suite guards hardest.
 - **A floating control in any note opened from the feed** — the note stays
   marked while you read it, so you can rate it when you actually know, rather
   than at the moment you clicked the card
+- **Ratings that show what they will do** before you press them, each labelled
+  with the interval it would schedule, and the four FSRS grades expanded into
+  eight tiers so you can pick something between "hard" and "good"
+- **Hold to adjust faster** — a tap on the retention control moves it one
+  0.0001 step; holding ramps up to 0.01 so the control is usable at all
 - **Interface in English or 简体中文**, following Obsidian by default
 - **Preset export and import** as JSON, to the clipboard or a vault file
 - Shuffled card feed, not another list sorted by modification date
@@ -146,13 +151,38 @@ The scheduling engine.
 - **Algorithm**: Off, FSRS-6, SM-2 or Leitner (default: Off, which reproduces
   the original shuffled feed exactly)
 - **Grading**: Automatic only, automatic with manual override, or manual only
-- **Automatic grading sensitivity**: How much evidence counts as engagement
+- **Automatic grading sensitivity**: How much evidence counts as engagement —
+  conservative (only opening the note), medium (15 seconds of reading), or
+  aggressive (3 seconds). Each preset's actual thresholds are shown next to it,
+  and **Custom** lets you set your own
 - **Desired retention** (FSRS, 0.70–0.97): Target chance of still remembering a
   note when it returns. Raising it shortens intervals and increases the number
-  of reviews steeply. 0.85–0.90 suits most people
-- **Maximum interval** (FSRS): Longest gap in days before a note returns
+  of reviews steeply. **This is the setting that controls how long intervals
+  get** — see the note below on why the maximum interval is the wrong knob for
+  that
+- **Maximum interval** (FSRS): Longest gap in days before a note returns. FSRS
+  applies this to *hard* and then pushes good and easy one day past it each, so
+  the real ceiling is two days higher than the number you set
+- **Smallest gap between the top two tiers** (FSRS): The second-highest tier
+  must sit at least this many days below the highest. This is what bounds the
+  retention control
 - **Fuzz due dates** (FSRS): Spread due dates slightly so notes do not all
   return on the same day
+
+The retention control is bounded by the tier-gap rule above rather than by its
+full 0.70–0.97 range, because outside that range the top tiers stop being
+distinct. At a 30-day cap with a two-day gap the window is **0.9525–0.9700**.
+Below it the cap clamps the top grades together; above it the whole ladder is
+squeezed. The window is derived, not hardcoded — raising the cap or lowering
+the gap widens it.
+
+If your saved retention falls outside the window the settings page says so,
+rather than quietly changing a scheduling value you chose.
+
+**On the maximum interval:** shortening it does not shorten your intervals so
+much as flatten the ladder. At a 30-day cap, any note reviewed more than twice
+gives `30 / 31 / 32` days for hard, good and easy — three buttons that do the
+same thing. Raise the cap and lower the retention instead.
 
 ### Display presets
 
@@ -164,6 +194,15 @@ How the feed looks and where a note opens.
 - **Preview size**: Show a small, medium, or large text preview (default:
   medium)
 - **Where a note opens**: The pane a card opens into
+- **Interval unit**: Show intervals in days, hours, or minutes. Sub-day
+  intervals are common near the bottom of the ladder, where a days-only display
+  would render several different choices as "1 day"
+- **Rating tiers**: How many rungs the ladder shows, 4 or 8. Extra tiers are
+  interpolated between the four real FSRS grades: the schedule is still updated
+  from a real grade, but an interpolated tier's interval is not a value FSRS
+  itself computed
+- **Offer ratings after reading**: Expand the floating control into the ratings
+  once a note opened from the feed has actually been read (default: off)
 - **Frontmatter properties before preview** / **after preview**: Property names
   to render before or after the note body (one per line)
 - **Frontmatter image properties**: Property names to check for images (default:
