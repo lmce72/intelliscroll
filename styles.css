@@ -324,6 +324,33 @@
   font-size: 0.85rem;
 }
 
+/* The in-flight state of infinite scroll: a turning spinner beside its label,
+   so a load reads as "more is coming" rather than as the feed ending mid-note.
+   Only the transform animates — the element is already laid out at its final
+   size, so the row never reflows while it turns. */
+.intelliscroll-infinite-scroll-sentinel .intelliscroll-load-spinner {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-inline-end: 0.5rem;
+  animation: intelliscroll-spin 0.9s linear infinite;
+}
+
+.intelliscroll-infinite-scroll-sentinel .intelliscroll-load-spinner svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+  stroke: var(--text-muted);
+}
+
+.intelliscroll-infinite-scroll-sentinel .intelliscroll-load-text {
+  vertical-align: middle;
+}
+
+@keyframes intelliscroll-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .intelliscroll-card-snippet-markdown {
   white-space: normal;
   overflow: hidden;
@@ -584,10 +611,20 @@
 /* On mobile the control moves to the left corner: the bottom-right is where
    Obsidian keeps its own mobile affordances, and the left is the easier reach.
    Keyed off the class Obsidian puts on the body for the platform, so this
-   follows the app rather than guessing from the viewport width. */
+   follows the app rather than guessing from the viewport width.
+
+   It also rides above the mobile navigation bar instead of under it. Obsidian
+   docks that bar over the bottom of the note pane (80px in the default mode,
+   the touch-size height when floating), so a control sitting 1rem off the
+   pane's bottom edge is covered by it. Both offsets are Obsidian's own
+   variables, defined only under `.is-mobile` — the zero fallbacks are never
+   used there. */
 .is-mobile .intelliscroll-note-float {
   right: auto;
   left: 1rem;
+  bottom: calc(
+    1rem + var(--navbar-height, 0px) + var(--navbar-bottom-offset, 0px)
+  );
 }
 
 /* Holds the card's action buttons as a single flex child. The title row spreads

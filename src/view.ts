@@ -1712,7 +1712,7 @@ export class IntelliScrollView extends ItemView {
     }
 
     this.infiniteScrollLoading = true;
-    sentinel.textContent = t('view.status.loadingMore');
+    this.setSentinelState(sentinel, 'loading');
 
     try {
       const loadedPaths = new Set(
@@ -1737,7 +1737,7 @@ export class IntelliScrollView extends ItemView {
 
       if (nextBatch.length === 0) {
         this.infiniteScrollExhausted = true;
-        sentinel.textContent = t('view.status.noMore');
+        this.setSentinelState(sentinel, 'end');
         return;
       }
 
@@ -1764,13 +1764,45 @@ export class IntelliScrollView extends ItemView {
 
       if (nextBatch.length < INFINITE_SCROLL_CHUNK_SIZE) {
         this.infiniteScrollExhausted = true;
-        sentinel.textContent = t('view.status.noMore');
+        this.setSentinelState(sentinel, 'end');
       } else {
-        sentinel.textContent = '';
+        this.setSentinelState(sentinel, 'more');
       }
+    } catch (error) {
+      // A failed load must not leave the spinner turning forever; the next
+      // scroll into the sentinel retries.
+      this.setSentinelState(sentinel, 'more');
+      console.error('[intelliscroll] could not load more notes', error);
     } finally {
       this.infiniteScrollLoading = false;
     }
+  }
+
+  /**
+   * What the sentinel at the bottom of the feed is showing.
+   *
+   * `loading` is a turning spinner beside its label, so an in-flight load reads
+   * as "more is coming" rather than as the feed ending mid-note. `more` is an
+   * empty trigger strip; `end` is the plain end-of-feed text.
+   */
+  private setSentinelState(
+    sentinel: HTMLElement,
+    state: 'loading' | 'more' | 'end'
+  ): void {
+    if (state === 'more') {
+      sentinel.empty();
+      return;
+    }
+
+    sentinel.empty();
+    if (state === 'loading') {
+      const spinner = sentinel.createSpan({ cls: 'intelliscroll-load-spinner' });
+      setIcon(spinner, 'loader-circle');
+    }
+    sentinel.createSpan({
+      cls: 'intelliscroll-load-text',
+      text: state === 'loading' ? t('view.status.loadingMore') : t('view.status.noMore'),
+    });
   }
 
   private async showNewBatch(): Promise<void> {
@@ -2113,6 +2145,21 @@ export class IntelliScrollView extends ItemView {
     // Snippet is rendered on demand from a bounded Markdown fragment.
     const snippetEl = card.createDiv('intelliscroll-card-snippet');
     this.setSnippetPreviewSize(snippetEl);
+    // Clamp from the very first paint. These mode classes carry the
+    // max-height and line clamp, and they used to be applied only when the
+    // preview finished rendering — but the staging tree lives inside this
+    // element and holds the *whole* note while Obsidian and its plugins settle
+    // into it. Scrolling to a card as its lazy render began therefore showed
+    // the note's complete body, card growing to full height, for as long as
+    // the settle took (seconds on notes heavy with tables and embeds).
+    snippetEl.classList.toggle(
+      'intelliscroll-card-snippet-simple',
+      this.isSimplifiedView()
+    );
+    snippetEl.classList.toggle(
+      'intelliscroll-card-snippet-markdown',
+      !this.isSimplifiedView()
+    );
     snippetEl.textContent = preview.attachment
       ? attachmentLabel(preview.path)
       : t('view.status.loading');
