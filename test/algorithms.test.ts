@@ -448,3 +448,31 @@ test('a note reviewed earlier the same day reports one model interval for three 
     'while the committed values are pushed apart by the ordering rule'
   );
 });
+
+test('SM-2 multiplies by the E-Factor in effect, not the updated one', () => {
+  // Published SM-2: I(n) = I(n-1) * EF, *then* EF is adjusted for the grade.
+  // Four "hard" reviews (q=3, delta -0.14) expose the difference immediately
+  // after the first two fixed intervals.
+  const [, second, third, fourth] = ladder('sm2', ['hard', 'hard', 'hard', 'hard']);
+
+  assert.equal(dueInDays(third!, second!.due), 14, 'ceil(6 * 2.22)');
+  assert.equal(dueInDays(fourth!, third!.due), 30, 'ceil(14 * 2.08)');
+});
+
+test('Leitner ignores an unengaged placeholder payload', () => {
+  // An unengaged note is stored with `data: {}`; treating that as a payload
+  // produced a NaN box that only looked right because of a fallback.
+  const placeholder: NoteSrsState = {
+    algorithm: 'leitner',
+    due: 0,
+    lastReviewedAt: 0,
+    reviews: 0,
+    hash: '',
+    data: {},
+  };
+  const next = getAlgorithm('leitner').review(placeholder, 'good', context());
+
+  assert.equal(next.data['box'], 0, 'first success lands on the first box');
+  assert.equal(typeof next.data['box'], 'number');
+  assert.equal(Number.isNaN(next.data['box']), false);
+});

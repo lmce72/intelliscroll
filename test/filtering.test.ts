@@ -2,16 +2,22 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   compileFilter,
+  coveringIgnoreEntry,
   fileNameOf,
   matchesAnyFolder,
   matchesFolder,
   normalizeFolderList,
   normalizeTagList,
+  passesIgnoreRule,
   passesMode,
   passesTagRule,
 } from '../src/filtering.ts';
 import { defaultFilterPreset } from '../src/presets.ts';
-import type { FilterPreset } from '../src/types.ts';
+import type { FilterPreset, FilterRule } from '../src/types.ts';
+
+function ignoreRule(values: string[]): FilterRule {
+  return { mode: 'blacklist', values };
+}
 
 function preset(overrides: Partial<FilterPreset> = {}): FilterPreset {
   return { ...defaultFilterPreset(), ...overrides };
@@ -165,4 +171,39 @@ test('trimming whitespace-only search changes does not re-index', () => {
   const a = compileFilter(preset({ searchQuery: 'tag:#work' }));
   const b = compileFilter(preset({ searchQuery: '  tag:#work  ' }));
   assert.equal(a.key, b.key, 'surrounding whitespace is not a real change');
+});
+
+// ─── ignore list ───────────────────────────────────────────────────────────
+
+test('an ignored folder hides the notes inside it, and only inside it', () => {
+  const rule = ignoreRule(['Notes/']);
+
+  assert.equal(passesIgnoreRule(rule, 'Notes/a.md'), false);
+  assert.equal(passesIgnoreRule(rule, 'Notes/sub/b.md'), false);
+  assert.equal(passesIgnoreRule(rule, 'Notes-archive/a.md'), true);
+  assert.equal(passesIgnoreRule(rule, 'Other/Notes/a.md'), true);
+});
+
+test('an ignored note is matched exactly, not as a prefix', () => {
+  const rule = ignoreRule(['Notes/a.md']);
+
+  assert.equal(passesIgnoreRule(rule, 'Notes/a.md'), false);
+  assert.equal(passesIgnoreRule(rule, 'Notes/a.md.bak'), true);
+  assert.equal(passesIgnoreRule(rule, 'Notes/a.md/child.md'), true);
+});
+
+test('the covering entry is the most specific one', () => {
+  const rule = ignoreRule(['Notes/', 'Notes/sub/', 'Notes/sub/b.md']);
+
+  assert.equal(coveringIgnoreEntry(rule, 'Notes/a.md'), 'Notes/');
+  assert.equal(coveringIgnoreEntry(rule, 'Notes/sub/b.md'), 'Notes/sub/b.md');
+  assert.equal(coveringIgnoreEntry(rule, 'Notes/sub/c.md'), 'Notes/sub/');
+  assert.equal(coveringIgnoreEntry(rule, 'Other/a.md'), null);
+});
+
+test('a covering folder entry reports itself with its trailing slash', () => {
+  // The toggle passes this string straight back to the preset, so the stored
+  // spelling (which is what distinguishes a folder from a note) has to survive.
+  const rule = ignoreRule(['Notes/']);
+  assert.equal(coveringIgnoreEntry(rule, 'Notes/a.md'), 'Notes/');
 });

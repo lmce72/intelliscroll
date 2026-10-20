@@ -387,6 +387,43 @@ function tokenize(query: string): Token[] {
         index++;
         continue;
       }
+      // A `/.../` regex may contain parentheses, slashes and spaces inside a
+      // character class. Treat it as one unit so `/foo(bar)/` and
+      // `path:/(Daily|Weekly)\/.*\.md/` reach `parseRegex` intact instead of
+      // being split into fragments that fail to parse.
+      if (
+        current === '/' &&
+        !quoted &&
+        (index === start || query[index - 1] === ':')
+      ) {
+        index++;
+        let inClass = false;
+        let regexEscaped = false;
+        while (index < query.length) {
+          const char = query[index]!;
+          if (regexEscaped) {
+            regexEscaped = false;
+            index++;
+            continue;
+          }
+          if (char === '\\') {
+            regexEscaped = true;
+            index++;
+            continue;
+          }
+          if (char === '[') inClass = true;
+          else if (char === ']') inClass = false;
+          else if (char === '/' && !inClass) {
+            index++;
+            break;
+          }
+          index++;
+        }
+        while (index < query.length && /[dgimsuvy]/.test(query[index]!)) {
+          index++;
+        }
+        continue;
+      }
       if (
         current &&
         !quoted &&

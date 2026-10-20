@@ -104,3 +104,25 @@ test('treats an empty query as unfiltered and malformed queries as no match', ()
   assert.equal(matchesSearchQuery('(meeting planning', document), false);
   assert.equal(matchesSearchQuery('[status:Draft', document), false);
 });
+
+test('a regex atom may contain parentheses and escaped slashes', () => {
+  const doc: SearchDocument = {
+    path: 'Projects/Daily/2026-10-20.md',
+    content: 'foobaz, and literally foo(bar).',
+    frontmatter: {},
+  };
+
+  // Parentheses here are regex grouping; the tokenizer must not split the atom
+  // at them.
+  assert.equal(matchesSearchQuery('/(foo|bar)baz/', doc), true);
+  assert.equal(matchesSearchQuery('/foo\\(bar\\)/', doc), true);
+  assert.equal(
+    matchesSearchQuery('path:/(Daily|Weekly)\\/.*\\.md/', doc),
+    true,
+    'a property-scoped regex keeps its parentheses and escaped slash'
+  );
+  assert.equal(
+    matchesSearchQuery('path:/(Weekly|Monthly)\\/.*\\.md/', doc),
+    false
+  );
+});

@@ -1,8 +1,12 @@
-import { ensureLibrary, newPresetId, uniqueName } from './presets.ts';
+import {
+  ensureLibrary,
+  newPresetId,
+  uniqueName,
+  upgradeFilterPresets,
+} from './presets.ts';
 import {
   isAlgorithmPreset,
   isDisplayPreset,
-  isFilterPreset,
   isTotalPreset,
   type PresetLibrary,
   type TotalPreset,
@@ -240,7 +244,9 @@ export function importPresets(
   }
   const source = rawPresets as Partial<PresetLibrary>;
 
-  const incomingFilters = validEntries(source.filters, isFilterPreset);
+  // Upgrade-then-validate, like `data.json`: an export written before `ignore`
+  // existed lacks that field, and validating it as-is would drop every filter.
+  const incomingFilters = upgradeFilterPresets(source.filters);
   const incomingAlgorithms = validEntries(source.algorithms, isAlgorithmPreset);
   const incomingDisplays = validEntries(source.displays, isDisplayPreset);
   const incomingTotals = validEntries(source.totals, isTotalPreset);

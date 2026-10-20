@@ -346,3 +346,35 @@ test('importing into a non-empty library is additive and does not mutate it', ()
   assert.equal(current.filters.length, 1, 'the caller library is left alone');
   assert.equal(current.totals.length, 1);
 });
+
+test('an export from before the ignore field still imports its filters', () => {
+  // The validator requires `ignore`; `upgradeFilterPresets` backfills it, the
+  // same way `loadData` repairs a pre-ignore data.json. Without that, every
+  // filter in an old export is dropped and the UI reports nothing imported.
+  const legacyFilter = {
+    id: 'legacy-filter',
+    name: 'Legacy',
+    folders: { mode: 'blacklist', values: [] },
+    tags: { mode: 'blacklist', values: [] },
+    globs: { mode: 'blacklist', values: [] },
+    searchQuery: '',
+    fileTypes: { mode: 'blacklist', values: ['image'] },
+    includeMediaOnlyNotes: false,
+  };
+
+  const result = importPresets(
+    JSON.stringify({
+      version: 1,
+      kind: 'filter',
+      exportedAt: 0,
+      presets: { filters: [legacyFilter] },
+    }),
+    baseLibrary()
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.imported.filters, 1);
+  const imported = result.library.filters.find((p) => p.name === 'Legacy');
+  assert.ok(imported);
+  assert.deepEqual(imported.ignore, { mode: 'blacklist', values: [] });
+});

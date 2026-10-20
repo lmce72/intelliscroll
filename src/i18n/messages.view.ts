@@ -51,6 +51,8 @@ export const messages: MessageModule = {
     'view.menu.fuzz': 'Fuzz due dates',
     'view.menu.reset': 'Reset to saved settings',
     'view.menu.rating': 'Rate this note',
+    'view.notice.ratingUnavailable':
+      'Scheduling is unavailable, so the rating was not recorded.',
     'view.menu.algorithmPreset': 'Algorithm preset',
     'view.menu.displayPreset': 'Display preset',
     'view.menu.totalPreset': 'Total preset',
@@ -136,6 +138,7 @@ export const messages: MessageModule = {
     'view.menu.fuzz': '到期日加抖动',
     'view.menu.reset': '恢复为已保存的设置',
     'view.menu.rating': '给这篇笔记评分',
+    'view.notice.ratingUnavailable': '调度不可用，本次评分没有记录。',
     'view.menu.algorithmPreset': '算法预设',
     'view.menu.displayPreset': '显示预设',
     'view.menu.totalPreset': '总预设',

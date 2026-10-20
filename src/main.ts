@@ -1,4 +1,9 @@
-import { Plugin } from 'obsidian';
+import {
+  MarkdownView,
+  Plugin,
+  TFolder,
+  type TAbstractFile,
+} from 'obsidian';
 import {
   CURRENT_SETTINGS_VERSION,
   DEFAULT_TIER_COUNT,
@@ -13,6 +18,7 @@ import {
   type AlgorithmPreset,
   type DisplayPreset,
   type FilterPreset,
+  type FilterRule,
   type PluginData,
   type PluginSettings,
   type Rating,
@@ -32,7 +38,17 @@ import {
 } from './presets';
 import { DEFAULT_SETTINGS, IntelliScrollSettingTab } from './settings';
 import { setLanguage } from './i18n';
+import { FeedSession } from './feedSession';
+import {
+  fileExtension,
+  isHiddenVaultPath,
+  migratePathValues,
+  pathRename,
+  type PathRename,
+} from './pathRename';
+import { compileFilter } from './filtering';
 import { NoteOverlay } from './noteOverlay';
+import { watchTapGestures } from './ratingPopover';
 import { Indexer } from './indexer';
 import { SrsStore, logSrsError } from './srsLog';
 import { IntelliScrollView, VIEW_TYPE_INTELLISCROLL } from './view';
@@ -49,22 +65,289 @@ export default class IntelliScrollPlugin extends Plugin {
   srsStore!: SrsStore;
 
   /**
-   * Notes opened from the feed during this session.
+   * Notes reached from the feed during this session, including notes reached
+   * by following links inside them.
    *
    * Session-scoped on purpose: the point is to rate a note *after* reading it,
    * so a marker that vanished the moment you navigated away would be useless.
    */
-  private openedFromFeed = new Set<string>();
+  private feedSession: FeedSession | null = null;
   private noteOverlay: NoteOverlay | null = null;
 
   /** Remember that this note was reached from the feed. */
   markOpenedFromFeed(path: string): void {
-    this.openedFromFeed.add(path);
+    this.feedSession?.mark(path);
     this.noteOverlay?.refresh();
   }
 
   wasOpenedFromFeed(path: string): boolean {
-    return this.openedFromFeed.has(path);
+    return this.feedSession?.has(path) ?? false;
+  }
+
+  /**
+   * The note pane an element belongs to.
+   *
+   * Used to tell a link click made inside a member note from one made in the
+   * sidebar, a tab header, or a hover popover. Iterating the markdown leaves
+   * rather than trusting the active file keeps a click in a background pane
+   * attributed to the pane it actually happened in.
+   */
+  private markdownPathForElement(element: Element): string | null {
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.contentEl.contains(element)) {
+        return view.file?.path ?? null;
+      }
+    }
+    return null;
+  }
+
+  // ─── File lifecycle ───────────────────────────────────────────────────────
+  //
+  // Everything this plugin persists is keyed by path: the preview index, the
+  // reading history, the SRS sidecar, the reading session and the rating shown
+  // on a control. Obsidian's add/delete/rename events are the only place those
+  // keys can be kept honest — no later read can tell that a path once meant a
+  // different note. A rename in particular must move state rather than leave it
+  // behind, or the renamed note silently restarts its schedule while whatever
+  // file takes the old path inherits it.
+
+  private async handlePathRename(
+    file: TAbstractFile,
+    oldPath: string
+  ): Promise<void> {
+    const newPath = file.path;
+    if (oldPath === newPath) return;
+    // The vault's own configuration lives under the config directory and is
+    // never part of the feed; migrating or saving for it would be pure noise.
+    const configPrefix = `${this.app.vault.configDir}/`;
+    if (oldPath.startsWith(configPrefix) && newPath.startsWith(configPrefix)) {
+      return;
+    }
+
+    const rename = pathRename(oldPath, newPath, file instanceof TFolder);
+    const now = Date.now();
+
+    // Filter presets first: they name paths too, and the preview migration
+    // below asks the effective filter whether the *new* path is in scope. An
+    // ignored note or folder that is renamed must keep being ignored — both so
+    // the rename does not silently un-hide it, and so the vacated path does not
+    // stay ignored for whatever file takes it next.
+    let changed = this.migrateFilterPresets(rename);
+    changed = this.migratePreviews(rename) || changed;
+    changed = this.migrateHistory(rename) || changed;
+    changed = this.migrateLastRatings(rename) || changed;
+    // Before the overlay is refreshed, so the note's new path is already a
+    // member when the sweep decides whether to keep its control.
+    this.feedSession?.rename(rename);
+
+    try {
+      if (rename.folder) {
+        await this.srsStore?.renameFolderPaths(oldPath, newPath, now);
+      } else {
+        await this.srsStore?.renamePath(oldPath, newPath, now);
+      }
+    } catch (error) {
+      // The in-memory move already happened; a failed append is reported but
+      // must not lose the schedule for the rest of the session.
+      logSrsError('failed to record a rename in the resurfacing log', error);
+    }
+
+    for (const view of this.feedViews()) view.handlePathRename(rename);
+    this.noteOverlay?.refresh();
+    // Re-evaluate filters and sweep anything the move took out of scope on the
+    // next refresh. The migrated previews keep their mtime: their content did
+    // not change, so re-reading them would only cost a pass.
+    this.indexer.markDirty();
+    // A rename of a folder can arrive as one event per child; only a rename
+    // that actually touched stored state may rewrite data.json.
+    if (changed) await this.saveSettings();
+  }
+
+  private async handlePathDelete(file: TAbstractFile): Promise<void> {
+    const path = file.path;
+    const configPrefix = `${this.app.vault.configDir}/`;
+    if (path.startsWith(configPrefix)) return;
+    const folder = file instanceof TFolder;
+    const prefix = `${path}/`;
+    const under = (candidate: string): boolean =>
+      candidate === path || (folder && candidate.startsWith(prefix));
+    const now = Date.now();
+    let changed = false;
+
+    if (folder) {
+      for (const key of Object.keys(this.data.previews)) {
+        if (!key.startsWith(prefix)) continue;
+        delete this.data.previews[key];
+        changed = true;
+      }
+    } else if (path in this.data.previews) {
+      delete this.data.previews[path];
+      changed = true;
+    }
+
+    const historyLength = this.data.history.length;
+    this.data.history = this.data.history.filter(
+      (entry) => !under(entry.path)
+    );
+    if (this.data.history.length !== historyLength) changed = true;
+
+    for (const key of Array.from(this.lastRatings.keys())) {
+      if (under(key)) this.lastRatings.delete(key);
+    }
+
+    if (folder) this.feedSession?.forgetUnder(path);
+    else this.feedSession?.forget(path);
+
+    try {
+      if (folder) await this.srsStore?.forgetFolderPaths(path, now);
+      else await this.srsStore?.forgetPath(path, now);
+    } catch (error) {
+      logSrsError('failed to record a delete in the resurfacing log', error);
+    }
+
+    // An open pane may still be showing the deleted note; a folder delete has
+    // no per-file event to tell the overlay to look again.
+    this.noteOverlay?.refresh();
+
+    this.indexer.markDirty();
+    if (changed) await this.saveSettings();
+  }
+
+  /**
+   * Move preview-index entries to their new paths.
+   *
+   * The stored preview describes the file's *content*, which a rename does not
+   * change, so it moves as-is. The one exception is a rename that changes the
+   * file's extension: the entry's shape (`attachment`, `mediaOnly`, an image
+   * path) may no longer describe the file and is dropped, leaving the index's
+   * next pass to classify the new path from scratch.
+   *
+   * A file rename is O(1): only its own key can match. A folder rename scans
+   * the index once — Obsidian may report the same move as one folder event and
+   * one event per child, so scanning per event would be quadratic.
+   */
+  private migratePreviews(rename: PathRename): boolean {
+    const filter = compileFilter(this.getEffectiveFilter());
+    let changed = false;
+
+    const move = (from: string, stored: StoredNotePreview): void => {
+      const next = rename.map(from);
+      if (next === null) return;
+      changed = true;
+      if (next !== from) delete this.data.previews[from];
+
+      // A note moved into an ignored folder must leave the feed with it; tag
+      // and search filters are re-evaluated by the index pass this marks dirty.
+      if (!filter.passesPath(next)) return;
+      // Dot-segments are not part of the vault index (this is also where the
+      // Obsidian-trash folder lives), so a preview moved there would show a
+      // trashed note until the next sweep. The schedule itself still moves:
+      // restoring from the trash is a rename back and should keep it.
+      if (isHiddenVaultPath(next)) return;
+      if (!rename.folder && fileExtension(from) !== fileExtension(next)) return;
+
+      // A standalone attachment's `imagePath` is the attachment's own path, and
+      // a cover can reference a file that moved with a folder. Carry it across
+      // or the card keeps pointing at a location that no longer exists.
+      const imagePath = stored.imagePath;
+      const mappedImage = imagePath === undefined ? null : rename.map(imagePath);
+      this.data.previews[next] =
+        mappedImage !== null && mappedImage !== imagePath
+          ? { ...stored, imagePath: mappedImage }
+          : stored;
+    };
+
+    if (rename.folder) {
+      const prefix = `${rename.from}/`;
+      for (const [path, stored] of Object.entries(this.data.previews)) {
+        if (path === rename.from || path.startsWith(prefix)) {
+          move(path, stored);
+        }
+      }
+    } else {
+      const stored = this.data.previews[rename.from];
+      if (stored !== undefined) move(rename.from, stored);
+    }
+
+    return changed;
+  }
+
+  /** Move reading history to the renamed paths. */
+  private migrateHistory(rename: PathRename): boolean {
+    let changed = false;
+    this.data.history = this.data.history.map((entry) => {
+      const mapped = rename.map(entry.path);
+      if (mapped === null) return entry;
+      changed = true;
+      return { ...entry, path: mapped };
+    });
+    return changed;
+  }
+
+  /**
+   * Rewrite path-bearing filter values for a rename.
+   *
+   * Every saved filter preset is migrated, not only the active one: presets are
+   * configurations the user expects to keep working, and a folder rename that
+   * only updated whichever preset happened to be active would quietly change
+   * what the others mean.
+   *
+   * Glob patterns are deliberately left alone — `Daily/*` is a pattern, not a
+   * path, and rewriting its literal prefix would corrupt patterns that were
+   * never meant to be moved.
+   */
+  private migrateFilterPresets(rename: PathRename): boolean {
+    let changed = false;
+
+    const migrateRule = (rule: FilterRule): FilterRule => {
+      const migrated = migratePathValues(rule.values, rename);
+      if (!migrated.changed) return rule;
+      changed = true;
+      return { ...rule, values: migrated.values };
+    };
+
+    const migratePreset = (preset: FilterPreset): void => {
+      preset.ignore = migrateRule(preset.ignore);
+      // The folder dimension names folders only, so a file rename cannot touch
+      // it. (`ignore` holds both, which is why it always runs.)
+      if (rename.folder) preset.folders = migrateRule(preset.folders);
+    };
+
+    for (const preset of this.data.settings.presets.filters) {
+      migratePreset(preset);
+    }
+    // The session override is a live copy; leaving it stale would keep the old
+    // ignore entry in force until the next settings refresh.
+    if (this.sessionFilter) migratePreset(this.sessionFilter);
+
+    return changed;
+  }
+
+  /** Move remembered ratings to their new keys. */
+  private migrateLastRatings(rename: PathRename): boolean {
+    let changed = false;
+    const moves: Array<[string, Rating]> = [];
+    for (const [path, rating] of this.lastRatings) {
+      if (rename.covers(path)) moves.push([path, rating]);
+    }
+    for (const [path, rating] of moves) {
+      this.lastRatings.delete(path);
+      const next = rename.map(path);
+      if (next !== null) {
+        this.lastRatings.set(next, rating);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /** Every open feed, typed. */
+  private feedViews(): IntelliScrollView[] {
+    return this.app.workspace
+      .getLeavesOfType(VIEW_TYPE_INTELLISCROLL)
+      .map((leaf) => leaf.view)
+      .filter((view): view is IntelliScrollView => view instanceof IntelliScrollView);
   }
 
   /**
@@ -138,11 +421,18 @@ export default class IntelliScrollPlugin extends Plugin {
     // this plugin shipped with, so it should follow the default rather than
     // persist forever. Any other value is a deliberate setting and is kept —
     // the cap remains settable well above the default.
+    //
+    // Gated on the settings version, because 365 is a reachable value in the
+    // control. Matching on the value alone would silently undo a deliberate
+    // choice of one year on every single load.
+    const migrateMaximumInterval =
+      loadedSettingsVersion < CURRENT_SETTINGS_VERSION;
     let tunablesChanged = false;
     for (const preset of presets.algorithms) {
       const current = preset.fsrsTunables;
       const requestRetention = normalizeRetention(current.requestRetention);
       const maximumInterval =
+        migrateMaximumInterval &&
         current.maximumInterval === PREVIOUS_DEFAULT_MAXIMUM_INTERVAL
           ? FSRS_DEFAULT_TUNABLES.maximumInterval
           : normalizeMaximumInterval(current.maximumInterval);
@@ -345,6 +635,28 @@ export default class IntelliScrollPlugin extends Plugin {
       logSrsError('resurfacing state unavailable; feed runs unscheduled', error);
     }
 
+    // Path-keyed state has to follow the vault's own file operations. These
+    // live on the plugin rather than on a view: a rename or delete while no
+    // feed is open must still migrate or clear the schedule, or the next feed
+    // starts from a state that describes a vault that no longer exists.
+    //
+    // Registered only after the sidecar has loaded: a rename heard mid-load
+    // would otherwise look like a note with no state and leave the schedule
+    // behind.
+    this.registerEvent(
+      this.app.vault.on('create', () => this.indexer.markDirty())
+    );
+    this.registerEvent(
+      this.app.vault.on('rename', (file, oldPath) => {
+        void this.handlePathRename(file, oldPath);
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on('delete', (file) => {
+        void this.handlePathDelete(file);
+      })
+    );
+
     // Register view
     this.registerView(
       VIEW_TYPE_INTELLISCROLL,
@@ -368,9 +680,37 @@ export default class IntelliScrollPlugin extends Plugin {
     // Settings tab
     this.addSettingTab(new IntelliScrollSettingTab(this.app, this));
 
+    // The notes that belong to the current feed reading session. Link clicks
+    // are what extend it beyond the card that was opened; the popout case is
+    // handled because a click there never reaches this window's document.
+    this.feedSession = new FeedSession({
+      sourcePathFor: (element) => this.markdownPathForElement(element),
+    });
+    this.feedSession.watchDocument(document);
+    // Install the tap tracker before the first gesture. Installed lazily on
+    // the first click it would have missed that click's pointerdown, letting a
+    // swipe that ends on a rating button open the menu mid-scroll.
+    watchTapGestures(window);
+    // Popouts restored with the layout existed before this plugin loaded, so
+    // they never produced a window-open event for us to hear.
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const doc = leaf.view.containerEl.ownerDocument;
+      this.feedSession?.watchDocument(doc);
+      const win = doc.defaultView;
+      if (win) watchTapGestures(win);
+    });
+    this.registerEvent(
+      this.app.workspace.on('window-open', (_workspaceWindow, popout) => {
+        this.feedSession?.watchDocument(popout.document);
+        watchTapGestures(popout);
+      })
+    );
+
     // The floating marker for notes reached from the feed. Both events matter:
     // switching panes and opening a file can each be the first moment the
-    // marker becomes relevant.
+    // marker becomes relevant. `layout-change` covers closing a non-active
+    // note tab, which changes neither the active leaf nor the open file and
+    // would otherwise leave its control (and listeners) behind.
     this.noteOverlay = new NoteOverlay(this);
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', () =>
@@ -378,7 +718,15 @@ export default class IntelliScrollPlugin extends Plugin {
       )
     );
     this.registerEvent(
-      this.app.workspace.on('file-open', () => this.noteOverlay?.refresh())
+      this.app.workspace.on('layout-change', () => this.noteOverlay?.refresh())
+    );
+    this.registerEvent(
+      this.app.workspace.on('file-open', (file) => {
+        // Before refreshing: a note opened by a link inside a member note has
+        // to become a member in time for this same sweep to mount its control.
+        this.feedSession?.noteFileOpened(file?.path ?? null);
+        this.noteOverlay?.refresh();
+      })
     );
   }
 
@@ -392,7 +740,9 @@ export default class IntelliScrollPlugin extends Plugin {
       await this.app.workspace.revealLeaf(existingLeaf);
       const view = existingLeaf.view;
       if (view instanceof IntelliScrollView) {
-        await view.refreshForCurrentSettings();
+        // Opening the feed is a request to see the vault now, not to resume
+        // the batch that was on screen last time.
+        await view.refreshCompletely();
       }
       return;
     }
@@ -460,6 +810,37 @@ export default class IntelliScrollPlugin extends Plugin {
     this.sessionFilter = {
       ...structuredClone(this.getEffectiveFilter()),
       ...patch,
+    };
+  }
+
+  /**
+   * Keep a live filter override in step with an edit to a path-bearing rule.
+   *
+   * Settings and the ignore toggle write to the saved preset so the decision
+   * outlives the session. While an override is active that saved edit would be
+   * invisible: the override is what the feed and the index read, so the change
+   * would appear to do nothing (and a second click would add a duplicate)
+   * until the override was cleared.
+   */
+  updateSessionPathValue(
+    dimension: 'folders' | 'ignore',
+    value: string,
+    add: boolean
+  ): void {
+    const session = this.sessionFilter;
+    if (!session) return;
+
+    const rule = session[dimension];
+    const values = rule.values;
+    const next = add
+      ? values.includes(value)
+        ? values
+        : [...values, value]
+      : values.filter((entry) => entry !== value);
+
+    this.sessionFilter = {
+      ...session,
+      [dimension]: { mode: rule.mode, values: next },
     };
   }
 
@@ -603,11 +984,7 @@ export default class IntelliScrollPlugin extends Plugin {
    * labels and aria-labels would otherwise stay in the previous language.
    */
   rebuildFeedViews(): void {
-    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_INTELLISCROLL);
-    for (const leaf of leaves) {
-      const view = leaf.view;
-      if (view instanceof IntelliScrollView) view.rebuildForLanguageChange();
-    }
+    for (const view of this.feedViews()) view.rebuildForLanguageChange();
   }
 
   async saveSettings(): Promise<void> {
@@ -626,18 +1003,18 @@ export default class IntelliScrollPlugin extends Plugin {
 
     this.settingsRefreshTimer = window.setTimeout(() => {
       this.settingsRefreshTimer = null;
-      const views = this.app.workspace
-        .getLeavesOfType(VIEW_TYPE_INTELLISCROLL)
-        .map((leaf) => leaf.view)
-        .filter((view): view is IntelliScrollView => view instanceof IntelliScrollView);
-
-      void Promise.all(views.map((view) => view.refreshForCurrentSettings()));
+      void Promise.all(
+        this.feedViews().map((view) => view.refreshForCurrentSettings())
+      );
     }, 250);
   }
 
   onunload(): void {
     this.noteOverlay?.destroy();
     this.noteOverlay = null;
+
+    this.feedSession?.destroy();
+    this.feedSession = null;
 
     if (this.settingsRefreshTimer !== null) {
       window.clearTimeout(this.settingsRefreshTimer);

@@ -124,6 +124,14 @@ test('a click with no tracked press is accepted', () => {
   assert.equal(isTapGesture(event), true);
 });
 
+test('a keyboard activation is accepted without consulting pointer state', () => {
+  // Enter/Space on a button produce a click with `detail === 0`. The tracker
+  // may still hold the last mouse press; judging the keyboard click against it
+  // would reject every activation more than TAP_MAX_MS after the last click.
+  const event = { view: null, timeStamp: 0, detail: 0 } as unknown as MouseEvent;
+  assert.equal(isTapGesture(event), true);
+});
+
 // ─── Keeping clear of the note's floating control ──────────────────────────
 
 /** Viewport from a phone in portrait, and a menu opened from the float. */

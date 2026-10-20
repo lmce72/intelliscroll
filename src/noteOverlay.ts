@@ -13,7 +13,11 @@ import {
   showRatingMenu,
   toggleIgnored,
 } from './rating.ts';
-import { isTapGesture } from './ratingPopover.ts';
+import {
+  closeAllTierPopovers,
+  closePopoverFor,
+  isTapGesture,
+} from './ratingPopover.ts';
 import { activeDisplay } from './presets.ts';
 import { logSrsError } from './srsLog.ts';
 import { DWELL_HIGH_MS, MAX_DWELL_SAMPLE_MS } from './grading.ts';
@@ -192,6 +196,11 @@ export class NoteOverlay {
   private untrack(control: HTMLElement): void {
     const track = this.tracked.get(control);
     if (!track) return;
+    // An open rating menu is anchored to this control's button; leaving it
+    // behind would let it commit a rating to a note the pane no longer shows.
+    const rateButton = control.querySelector(`.${RATE_CLASS}`);
+    if (rateButton) closePopoverFor(rateButton);
+    if (track.rateButton) closePopoverFor(track.rateButton);
     for (const dispose of track.disposers.splice(0)) dispose();
     this.tracked.delete(control);
     this.stopTickingIfIdle();
@@ -277,7 +286,8 @@ export class NoteOverlay {
     }
 
     // The single button's menu would now be redundant beside the choices it
-    // used to offer.
+    // used to offer. Close it first: its rows still rate through that button.
+    if (track.rateButton) closePopoverFor(track.rateButton);
     track.rateButton?.remove();
     track.rateButton = null;
     this.paintChoices(track.control, track.path);
@@ -332,9 +342,18 @@ export class NoteOverlay {
       const existing = view.contentEl.querySelector<HTMLElement>(
         `.${FLOAT_CLASS}`
       );
+      const existingPath = existing?.dataset.path ?? null;
       const wanted = path !== null && this.plugin.wasOpenedFromFeed(path);
 
-      if (wanted && existing === null && path !== null) {
+      if (wanted && path !== null && existing !== null && existingPath !== path) {
+        // The pane now shows a different note: either the same leaf navigated
+        // (a link click) or the file was renamed. The control's handlers closed
+        // over the old path, so rating from it would write against a file that
+        // no longer holds this note. Rebuild rather than repaint.
+        this.untrack(existing);
+        existing.remove();
+        this.mount(view, path);
+      } else if (wanted && existing === null && path !== null) {
         this.mount(view, path);
       } else if (!wanted && existing !== null) {
         this.untrack(existing);
@@ -357,6 +376,7 @@ export class NoteOverlay {
   destroy(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    closeAllTierPopovers();
 
     for (const control of Array.from(this.tracked.keys())) this.untrack(control);
     if (this.tickTimer !== null) {
@@ -374,6 +394,9 @@ export class NoteOverlay {
 
   private mount(view: MarkdownView, path: string): void {
     const container = view.contentEl.createDiv({ cls: FLOAT_CLASS });
+    // Recorded so `refresh` can tell a control bound to this note from one left
+    // behind by a same-leaf navigation or a rename.
+    container.dataset.path = path;
     const title = view.file?.basename ?? path;
 
     const ignoreButton = container.createEl('button', {

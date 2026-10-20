@@ -74,8 +74,12 @@ function outcomeFor(prior: Sm2Payload | null, rating: Rating): Sm2Payload {
   const delta = 0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02);
   const nextEf = Math.max(MIN_EF, ef + delta);
   const reps = previousReps + 1;
+  // Published SM-2 multiplies by the E-Factor *in effect for this repetition*
+  // and only then applies the quality delta. Using `nextEf` here makes every
+  // grade that lowers EF shorten the interval by one extra step ("hard" drifts
+  // progressively shorter than the algorithm specifies).
   const intervalDays =
-    reps === 1 ? 1 : reps === 2 ? 6 : Math.ceil(previousInterval * nextEf);
+    reps === 1 ? 1 : reps === 2 ? 6 : Math.ceil(previousInterval * ef);
 
   return { ef: nextEf, intervalDays, reps };
 }

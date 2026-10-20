@@ -599,15 +599,30 @@ export interface NoteSrsState {
   data: Record<string, unknown>;
 }
 
-export type SrsEventKind = 'review' | 'unengaged' | 'edit';
+export type SrsEventKind =
+  | 'review'
+  | 'unengaged'
+  | 'edit'
+  /** The note at `path` used to live at `from`; state follows the file. */
+  | 'rename'
+  /** The note at `path` was deleted; its schedule must not outlive it. */
+  | 'delete';
 
 /** One line of the append-only sidecar log. */
 export interface SrsLogEntry {
   /** Epoch ms of the event. */
   t: number;
-  /** Note path. */
+  /** Note path: the new path for `rename`, the removed path for `delete`. */
   path: string;
   kind: SrsEventKind;
+  /**
+   * Present only for kind === 'rename': the path the note came from.
+   *
+   * State is keyed by path, so a rename has to be recorded durably as well as
+   * applied in memory — replaying the log after a restart would otherwise
+   * resurrect the old path and forget the new one.
+   */
+  from?: string;
   /** Present only for kind === 'review'. */
   rating?: Rating;
   /** Which algorithm computed the resulting schedule. */
@@ -620,24 +635,37 @@ export interface SrsLogEntry {
    */
   source?: 'auto' | 'explicit';
   /**
-   * The state produced by this review, for `kind === 'review'`.
+   * The state produced by this review (`kind === 'review'`), or the state that
+   * moved (`kind === 'rename'`).
    *
    * The outcome is stored rather than the inputs so that replaying the log
    * cannot drift: ts-fsrs's fuzzing is deterministic today, but that is an
    * undocumented implementation detail, and a library upgrade or a changed
    * retention setting would otherwise silently reconstruct different state.
+   *
+   * Rename entries carry the moved state for the same reason a review carries
+   * its result: after a path is reused, `states[from]` may belong to a newer
+   * note, and replaying the rename by copying it would overwrite the real
+   * destination state.
    */
   state?: NoteSrsState;
 }
 
 /**
  * A compacted view of the log: the current state of every note plus how many
- * log lines have already been folded in. Loading is snapshot + replay of the
- * tail, which keeps startup O(tail) rather than O(whole history).
+ * log lines have already been folded in.
+ *
+ * Loading is snapshot + replay of the whole log. Entries store their outcome,
+ * so replaying one that the snapshot already covers is a no-op; the watermark
+ * is kept for compatibility with snapshots written by earlier versions but is
+ * no longer used to skip lines.
  */
 export interface SrsSnapshot {
   version: number;
-  /** Number of log lines already folded into `states`. */
+  /**
+   * Always 0 in snapshots this version writes: compaction truncates the log
+   * right after, so no line of the resulting file is covered.
+   */
   logLines: number;
   states: Record<string, NoteSrsState>;
 }

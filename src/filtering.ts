@@ -112,6 +112,36 @@ export function passesTagRule(
  * are always real paths; treating them as folder prefixes would make `Notes`
  * also swallow `Notes-archive`, and folders already have their own dimension.
  */
+/**
+ * The ignore entry that hides this path, if any.
+ *
+ * Returns the stored spelling (a folder entry keeps its trailing slash). When
+ * several entries cover the path — a note entry and the folder it sits in —
+ * the longest wins, because that is the most specific one and the one a
+ * toggle should undo first.
+ */
+export function coveringIgnoreEntry(
+  rule: FilterRule,
+  filePath: string
+): string | null {
+  const path = filePath.toLowerCase();
+  let best: string | null = null;
+
+  for (const value of rule.values) {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) continue;
+    const folder = trimmed.endsWith('/');
+    const raw = folder ? trimmed.replace(/\/+$/, '') : trimmed;
+    const matches = folder
+      ? matchesFolder(path, raw)
+      : raw.toLowerCase() === path;
+    if (!matches) continue;
+    if (best === null || trimmed.length > best.length) best = trimmed;
+  }
+
+  return best;
+}
+
 export function passesIgnoreRule(rule: FilterRule, filePath: string): boolean {
   const path = filePath.toLowerCase();
   const anyMatch = rule.values

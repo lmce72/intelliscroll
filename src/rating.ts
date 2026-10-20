@@ -1,4 +1,4 @@
-import { Menu, TFile } from 'obsidian';
+import { Menu, Notice, TFile } from 'obsidian';
 import type IntelliScrollPlugin from './main';
 import { getAlgorithm } from './algorithms/index.ts';
 import { SrsStore, logSrsError } from './srsLog.ts';
@@ -21,6 +21,7 @@ import {
   openTierPopover,
   type TierPopoverRating,
 } from './ratingPopover.ts';
+import { coveringIgnoreEntry, passesIgnoreRule } from './filtering.ts';
 
 /**
  * Rating and ignoring, shared by both entry points: a card in the feed and the
@@ -135,14 +136,22 @@ export function ignoreTargets(path: string): IgnoreTarget[] {
   return targets;
 }
 
-/** Add or remove one exact value from the active filter preset's ignore list. */
+/** Add or remove one exact value from the filter preset in force. */
 export async function toggleIgnoreValue(
   plugin: IntelliScrollPlugin,
   value: string
 ): Promise<boolean> {
-  const preset = plugin.data.settings.presets.filters.find(
-    (candidate) => candidate.id === plugin.data.settings.activeFilterPresetId
-  );
+  const presets = plugin.data.settings.presets.filters;
+  // A session override may be a *different* preset being tried without being
+  // committed. The control painted itself from that preset, so the write has
+  // to land there too — otherwise it silently edits a configuration the reader
+  // is not looking at, and the one in force never changes.
+  const effectiveId = plugin.getEffectiveFilter().id;
+  const preset =
+    presets.find((candidate) => candidate.id === effectiveId) ??
+    presets.find(
+      (candidate) => candidate.id === plugin.data.settings.activeFilterPresetId
+    );
   if (!preset) return false;
 
   const already = preset.ignore.values.includes(value);
@@ -153,16 +162,22 @@ export async function toggleIgnoreValue(
       : [...preset.ignore.values, value],
   };
 
+  // A temporary filter override outranks the saved preset; update both so the
+  // change is visible now and still there after the override is cleared.
+  plugin.updateSessionPathValue('ignore', value, !already);
   await plugin.saveSettingsAndRefreshViews();
   return !already;
 }
 
-/** Whether the active filter preset ignores this path. */
+/**
+ * Whether the active filter preset ignores this path.
+ *
+ * Uses the rule rather than an exact list lookup: a note inside an ignored
+ * folder is ignored too, and a control that painted itself "not ignored" there
+ * would be lying about what the feed is doing.
+ */
 export function isIgnored(plugin: IntelliScrollPlugin, path: string): boolean {
-  const lower = path.toLowerCase();
-  return plugin
-    .getEffectiveFilter()
-    .ignore.values.some((value) => value.toLowerCase() === lower);
+  return !passesIgnoreRule(plugin.getEffectiveFilter().ignore, path);
 }
 
 /**
@@ -170,12 +185,32 @@ export function isIgnored(plugin: IntelliScrollPlugin, path: string): boolean {
  *
  * Returns the new state. Edits the saved preset rather than a session
  * override, because wanting never to see a note again is worth keeping.
+ *
+ * When the note is not listed itself but is covered by a folder entry, the
+ * toggle removes that covering entry instead of adding the note as a second,
+ * redundant one — the button already reads as "unignore", so clicking it must
+ * not keep the note hidden.
  */
 export async function toggleIgnored(
   plugin: IntelliScrollPlugin,
   path: string
 ): Promise<boolean> {
+  // The control painted itself from the effective filter, so the entry it is
+  // undoing has to be looked up there too; a session override from another
+  // preset can cover the note while the saved preset does not.
+  const covering = coveringIgnoreEntry(plugin.getEffectiveFilter().ignore, path);
+  if (covering !== null) return toggleIgnoreValue(plugin, covering);
   return toggleIgnoreValue(plugin, path);
+}
+
+/**
+ * Tell the reader a rating could not be recorded.
+ *
+ * A menu that closes and leaves the button unchanged is indistinguishable from
+ * "the click missed"; every failure path says so out loud.
+ */
+function reportRatingUnavailable(): void {
+  new Notice(t('view.notice.ratingUnavailable'));
 }
 
 /**
@@ -190,13 +225,22 @@ export async function applyRating(
   source: 'auto' | 'explicit'
 ): Promise<boolean> {
   const algorithm = plugin.getEffectiveAlgorithm();
-  if (algorithm.algorithm === 'off') return false;
+  if (algorithm.algorithm === 'off') {
+    reportRatingUnavailable();
+    return false;
+  }
 
   const store = plugin.srsStore;
-  if (!store?.isLoaded) return false;
+  if (!store?.isLoaded) {
+    reportRatingUnavailable();
+    return false;
+  }
 
   const file = plugin.app.vault.getAbstractFileByPath(path);
-  if (!(file instanceof TFile)) return false;
+  if (!(file instanceof TFile)) {
+    reportRatingUnavailable();
+    return false;
+  }
   const content = await plugin.app.vault.cachedRead(file);
 
   await store.recordReview(
@@ -357,8 +401,10 @@ function anchorForEvent(event: MouseEvent): {
   cleanup: () => void;
 } {
   const target: EventTarget | null = event.currentTarget;
-  if (target instanceof HTMLElement) {
-    return { element: target, cleanup: () => undefined };
+  // Duck-typed rather than `instanceof HTMLElement`: a popout window has its
+  // own DOM constructors, and the main window's check would reject its buttons.
+  if (target !== null && typeof (target as HTMLElement).closest === 'function') {
+    return { element: target as HTMLElement, cleanup: () => undefined };
   }
 
   const doc = event.view?.document ?? activeDocument;
@@ -514,24 +560,28 @@ export function showIgnoreMenu(options: {
   onChanged?: () => void;
 }): void {
   const { plugin, event, path, onChanged } = options;
-  const preset = plugin.data.settings.presets.filters.find(
-    (candidate) => candidate.id === plugin.data.settings.activeFilterPresetId
-  );
+  // Describe the configuration in force, not the saved preset that a session
+  // override may be temporarily outranking.
+  const ignoredValues = plugin.getEffectiveFilter().ignore.values;
 
   const menu = new Menu();
   menu.addItem((item) => item.setTitle(t('view.ignore.section')).setIsLabel(true));
 
   for (const target of ignoreTargets(path)) {
-    const ignored = preset?.ignore.values.includes(target.value) ?? false;
-    const title =
-      target.kind === 'note'
-        ? ignored
-          ? t('view.menu.unignore')
-          : t('view.menu.ignore')
-        : t(ignored ? 'view.ignore.removeFolder' : 'view.ignore.addFolder', {
-            path: target.value.replace(/\/+$/, ''),
-            level: target.level,
-          });
+    const isNote = target.kind === 'note';
+    // For the note itself, "ignored" includes a covering folder entry, and the
+    // toggle below removes that entry rather than adding a redundant note one.
+    const ignored = isNote
+      ? isIgnored(plugin, path)
+      : ignoredValues.includes(target.value);
+    const title = isNote
+      ? ignored
+        ? t('view.menu.unignore')
+        : t('view.menu.ignore')
+      : t(ignored ? 'view.ignore.removeFolder' : 'view.ignore.addFolder', {
+          path: target.value.replace(/\/+$/, ''),
+          level: target.level,
+        });
 
     menu.addItem((item) =>
       item
@@ -539,7 +589,8 @@ export function showIgnoreMenu(options: {
         .setIcon(ignoreTargetIcon(target, ignored))
         .onClick(() => {
           void (async () => {
-            await toggleIgnoreValue(plugin, target.value);
+            if (isNote) await toggleIgnored(plugin, path);
+            else await toggleIgnoreValue(plugin, target.value);
             onChanged?.();
           })();
         })

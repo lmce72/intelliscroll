@@ -23,6 +23,7 @@ import {
   defaultDisplayPreset,
   defaultFilterPreset,
   duplicatePreset,
+  idsForTotal,
   newPresetId,
   normalizeRule,
   removePreset,
@@ -978,13 +979,37 @@ function renderExcludedFolders(
   }
 }
 
+/**
+ * The saved filter preset the settings page edits.
+ *
+ * Reads on this page resolve through the effective configuration so a feed
+ * override is visible, but writes must land in the persisted preset — an
+ * override is not part of `data.json` and would vanish on reload.
+ */
+function savedFilterPreset(plugin: IntelliScrollPlugin): FilterPreset {
+  return activeFilter(
+    plugin.data.settings.presets,
+    plugin.data.settings.activeFilterPresetId
+  );
+}
+
+/** A hand edit means the active composite no longer describes the preset. */
+function markPresetEdited(plugin: IntelliScrollPlugin): void {
+  plugin.data.settings.activeTotalPresetId = null;
+}
+
 async function addExcludedFolder(
   plugin: IntelliScrollPlugin,
   refresh: () => void,
   folder: string,
   inputEl: HTMLInputElement | null
 ): Promise<void> {
-  plugin.getEffectiveFilter().folders.values.push(folder);
+  const preset = savedFilterPreset(plugin);
+  if (!preset.folders.values.includes(folder)) {
+    preset.folders.values.push(folder);
+  }
+  plugin.updateSessionPathValue('folders', folder, true);
+  markPresetEdited(plugin);
   await plugin.saveSettingsAndRefreshViews();
   if (inputEl) inputEl.value = '';
   refresh();
@@ -995,10 +1020,11 @@ async function removeExcludedFolder(
   folder: string,
   container: HTMLElement
 ): Promise<void> {
-  const values = plugin.getEffectiveFilter().folders.values;
-  const index = values.indexOf(folder);
-  if (index === -1) return;
-  values.splice(index, 1);
+  const preset = savedFilterPreset(plugin);
+  const index = preset.folders.values.indexOf(folder);
+  if (index !== -1) preset.folders.values.splice(index, 1);
+  plugin.updateSessionPathValue('folders', folder, false);
+  markPresetEdited(plugin);
   await plugin.saveSettingsAndRefreshViews();
   renderExcludedFolders(plugin, container);
 }

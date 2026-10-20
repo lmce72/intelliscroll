@@ -193,9 +193,14 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
       openNoteBehavior: display.openNoteBehavior,
       intervalUnit: display.intervalUnit,
       tierCount: display.tierCount,
+      promptRatingAfterRead: display.promptRatingAfterRead,
       excludeFolders: filter.folders.values,
       excludeTags: filter.tags.values,
       excludeGlobs: filter.globs.values,
+      folderMode: filter.folders.mode,
+      tagMode: filter.tags.mode,
+      globMode: filter.globs.mode,
+      fileTypeMode: filter.fileTypes.mode,
       searchQuery: filter.searchQuery,
       frontmatterImageProps: display.frontmatterImageProps,
       frontmatterBeforeProps: display.frontmatterBeforeProps,
@@ -240,6 +245,8 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         return settings.intervalUnit;
       case 'tierCount':
         return String(settings.tierCount);
+      case 'promptRatingAfterRead':
+        return settings.promptRatingAfterRead;
       case 'excludeTags':
         return settings.excludeTags.join('\n');
       case 'excludeGlobs':
@@ -280,14 +287,16 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         return this.plugin.data.settings.language;
       case 'activeFilterPreset':
         return this.plugin.data.settings.activeFilterPresetId;
+      // Reads resolve through the effective filter, like every other value on
+      // this page; only writes target the saved presets.
       case 'folderMode':
-        return this.activeFilterPreset().folders.mode;
+        return settings.folderMode;
       case 'tagMode':
-        return this.activeFilterPreset().tags.mode;
+        return settings.tagMode;
       case 'globMode':
-        return this.activeFilterPreset().globs.mode;
+        return settings.globMode;
       case 'fileTypeMode':
-        return this.activeFilterPreset().fileTypes.mode;
+        return settings.fileTypeMode;
       default:
         return undefined;
     }
@@ -362,6 +371,10 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         break;
       case 'tierCount':
         display.tierCount = normalizeTierCount(Number(value));
+        break;
+      case 'promptRatingAfterRead':
+        if (typeof value !== 'boolean') return;
+        display.promptRatingAfterRead = value;
         break;
       case 'excludeTags':
         if (typeof value !== 'string') return;
@@ -485,7 +498,13 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         return;
     }
 
-    if (key !== 'batchSize' && key !== 'infiniteScroll') {
+    // Feed mechanics and the interface language belong to no preset group, so
+    // changing them does not invalidate the composite preset selection.
+    if (
+      key !== 'batchSize' &&
+      key !== 'infiniteScroll' &&
+      key !== 'language'
+    ) {
       rootSettings.activeTotalPresetId = null;
     }
 
@@ -555,6 +574,7 @@ function retentionWindowFor(plugin: IntelliScrollPlugin): RetentionWindow | null
   const display = plugin.getEffectiveDisplay();
   const key = [
     algorithm.fsrsTunables.maximumInterval,
+    algorithm.fsrsTunables.enableShortTerm,
     algorithm.topGapDays,
     display.tierCount,
   ].join('|');

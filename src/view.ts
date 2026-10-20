@@ -6,12 +6,14 @@ import {
   MarkdownRenderer,
   Menu,
   Modal,
+  Notice,
   Platform,
   Scope,
   Setting,
   TextComponent,
   WorkspaceLeaf,
   TFile,
+  TFolder,
   setIcon,
   type App,
 } from 'obsidian';
@@ -34,6 +36,7 @@ import { allAlgorithms, getAlgorithm } from './algorithms';
 import { clampDwell, gradeEngagement, ratingForVerdict, thresholdsFor } from './grading';
 import { SrsStore, logSrsError } from './srsLog';
 import { ignoreIcon, ignoreLabel, isIgnored, paintRatingButton, showIgnoreMenu, showRatingMenu } from './rating';
+import { closePopoverFor } from './ratingPopover';
 import { passesFileTypeRule } from './filtering';
 import { pickCardIndex } from './navigation';
 import { ShortcutsModal } from './help';
@@ -41,6 +44,7 @@ import { openGuide } from './guideModal';
 import { t } from './i18n';
 import { recordView } from './history';
 import { removePathFromBatches } from './batches';
+import type { PathRename } from './pathRename.ts';
 import {
   attachmentLabel,
   isImagePath,
@@ -186,11 +190,16 @@ export class IntelliScrollView extends ItemView {
   private refreshStatusEl: HTMLElement | null = null;
   private isRefreshing = false;
   private pendingSettingsRefresh = false;
+  /** A complete refresh was requested while another one was in flight. */
+  private pendingCompleteRefresh = false;
   private batchSettingsKey: string | null = null;
   private historySaveTimer: number | null = null;
   private historySavePending = false;
   private restoredScrollTop = 0;
   private restoredScrollAnchor: { path: string; topOffset: number } | null = null;
+  /** Deferred scroll-restore callbacks that are still armed. */
+  private scrollRestoreHandles: Array<{ kind: 'raf' | 'timeout'; id: number }> =
+    [];
   private focusedPath: string | null = null;
   private scrollAnimationFrame: number | null = null;
   private renderedSnippetCache = new Map<string, HTMLElement>();
@@ -219,6 +228,21 @@ export class IntelliScrollView extends ItemView {
   private dwell = new Map<string, { ms: number; opened: boolean }>();
   /** Paths currently intersecting, mapped to when they became visible. */
   private visibleSince = new Map<string, number>();
+  /**
+   * Paths given an explicit rating in this batch.
+   *
+   * Hybrid grading is "automatic, with manual override"; without this the
+   * automatic verdict would be written after the explicit one and replace it.
+   */
+  private explicitlyRated = new Set<string>();
+  /**
+   * True while the feed is not the active, visible pane.
+   *
+   * IntersectionObserver does not change when the whole window is backgrounded
+   * or another tab is focused, so wall-clock dwell would keep running and rate
+   * cards the reader never saw as "good".
+   */
+  private dwellPaused = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: IntelliScrollPlugin) {
     super(leaf);
@@ -238,14 +262,6 @@ export class IntelliScrollView extends ItemView {
       })
     );
     this.registerEvent(
-      this.plugin.app.vault.on('create', (file) => {
-        if (file instanceof TFile) {
-          // Make a newly added bare attachment visible on the next reshuffle.
-          this.plugin.indexer.markDirty();
-        }
-      })
-    );
-    this.registerEvent(
       this.plugin.app.metadataCache.on('changed', (file) => {
         void this.refreshModifiedCard(file);
         this.schedulePluginPreviewRefresh(file.path);
@@ -259,9 +275,87 @@ export class IntelliScrollView extends ItemView {
     );
     this.registerEvent(
       this.plugin.app.vault.on('delete', (file) => {
-        void this.removeDeletedNote(file.path);
+        // A folder may be deleted in one event; its children then have no
+        // individual delete event to clean their cards up.
+        if (file instanceof TFolder) this.handleFolderDeleted(file.path);
+        else void this.removeDeletedNote(file.path);
       })
     );
+    // A rating can come from the note's floating control as well as this card,
+    // so repaint on every write rather than only on this view's own. Registered
+    // once with the component: `onOpen` runs again whenever the same view is
+    // reopened, and registering there would stack one listener per open.
+    this.register(
+      this.plugin.onRatingWritten((path) => {
+        // An explicit rating is the authority for this batch: automatic
+        // grading must not append a "good" review on top of it when the batch
+        // is torn down.
+        this.explicitlyRated.add(path);
+        const preview = this.currentBatch.find((item) => item.path === path);
+        this.updateRatingButton(path, preview?.title ?? titleFromPath(path));
+      })
+    );
+    this.setupDwellVisibility();
+  }
+
+  /**
+   * Pause dwell accounting whenever the feed is not being looked at.
+   *
+   * The feed can be open in a background tab, the window can be unfocused, or
+   * the app can be hidden. None of those fire an intersection edge, so without
+   * this a card left on screen rates itself "read" after fifteen seconds.
+   */
+  private setupDwellVisibility(): void {
+    const doc = this.containerEl.ownerDocument;
+    const win = doc.defaultView;
+    this.registerDomEvent(doc, 'visibilitychange', () =>
+      this.syncDwellActivity()
+    );
+    if (win) {
+      this.registerDomEvent(win, 'blur', () => this.syncDwellActivity());
+      this.registerDomEvent(win, 'focus', () => this.syncDwellActivity());
+    }
+    this.registerEvent(
+      this.plugin.app.workspace.on('active-leaf-change', () =>
+        this.syncDwellActivity()
+      )
+    );
+    this.syncDwellActivity();
+  }
+
+  private syncDwellActivity(): void {
+    if (this.isClosed) return;
+    const doc = this.containerEl.ownerDocument;
+    const win = doc.defaultView;
+    const visible =
+      doc.visibilityState === 'visible' && (!win || win.document.hasFocus());
+    const active = this.plugin.app.workspace.activeLeaf === this.leaf;
+    if (visible && active) this.resumeDwell();
+    else this.pauseDwell();
+  }
+
+  /** Fold the visible stretch and stop accumulating until resumed. */
+  private pauseDwell(): void {
+    if (this.dwellPaused) return;
+    this.dwellPaused = true;
+    for (const path of Array.from(this.visibleSince.keys())) {
+      this.markCardHidden(path);
+    }
+  }
+
+  /** Re-observe the cards so accumulation starts from "now". */
+  private resumeDwell(): void {
+    if (!this.dwellPaused || this.isClosed) return;
+    this.dwellPaused = false;
+    const body = this.containerEl.querySelector<HTMLElement>(
+      '.intelliscroll-body'
+    );
+    if (!body) return;
+    this.cardObserver?.disconnect();
+    this.cardObserver = this.createCardObserver(body);
+    body
+      .querySelectorAll<HTMLElement>('.intelliscroll-card')
+      .forEach((card) => this.cardObserver?.observe(card));
   }
 
   private registerKeyboardShortcuts(): void {
@@ -450,75 +544,67 @@ export class IntelliScrollView extends ItemView {
     } satisfies IntelliScrollViewState;
   }
 
-  async setState(state: unknown): Promise<void> {
-    const restored = parseViewState(state);
-    if (!restored) return;
-
-    const previousBatch = this.currentBatch;
-    const previousPaths = previousBatch.map((preview) => preview.path);
-    const restoredBatch = this.resolvePreviewPaths(restored.batchPaths);
-    const canKeepRenderedDom =
-      this.hasRendered &&
-      previousPaths.length === restoredBatch.length &&
-      previousPaths.every((path, index) => path === restoredBatch[index]?.path) &&
-      Boolean(this.containerEl.querySelector('.intelliscroll-body'));
-    this.currentBatch = canKeepRenderedDom ? previousBatch : restoredBatch;
-    this.batchHistory = restored.batchHistoryPaths
-      .map((paths) => this.resolvePreviewPaths(paths))
-      .filter((batch) => batch.length > 0)
-      .slice(0, MAX_BATCH_HISTORY);
-    this.batchHistoryCursor = Math.min(
-      restored.batchHistoryCursor,
-      this.batchHistory.length - 1
-    );
-    this.restoredScrollTop = restored.scrollTop;
-    this.focusedPath = Platform.isMobile ? null : restored.focusedPath;
-    this.restoredScrollAnchor = restored.scrollAnchor;
-    this.batchSettingsKey = this.getBatchSettingsKey();
-
-    if (this.hasRendered) {
-      if (canKeepRenderedDom) {
-        const body = this.containerEl.querySelector<HTMLElement>(
-          '.intelliscroll-body'
-        );
-        body
-          ?.querySelector('.intelliscroll-card-focused')
-          ?.classList.remove('intelliscroll-card-focused');
-        const focused = this.focusedPath
-          ? Array.from(
-              body?.querySelectorAll<HTMLElement>('.intelliscroll-card') ?? []
-            ).find((card) => card.dataset.path === this.focusedPath)
-          : undefined;
-        if (focused) {
-          focused.classList.add('intelliscroll-card-focused');
-          focused.focus({ preventScroll: true });
-        } else if (this.focusedPath) {
-          this.focusedPath = null;
-        }
-      } else {
-        this.renderBatch();
-        this.restoreScrollPosition();
-      }
-    }
+  /**
+   * The feed deliberately ignores restored workspace state.
+   *
+   * `onOpen` rebuilds from the vault every time, so replaying a batch that was
+   * serialised when the pane was last left would only fight that rebuild — and
+   * it is exactly how notes changed while Obsidian was closed stay invisible.
+   */
+  async setState(_state: unknown): Promise<void> {
+    // Intentionally empty; the feed is never resumed from persisted state.
   }
 
   async onOpen(): Promise<void> {
     this.isClosed = false;
-    // A rating can come from the note's floating control as well as this card,
-    // so repaint on every write rather than only this view's own.
-    this.register(
-      this.plugin.onRatingWritten((path) => {
-        const preview = this.currentBatch.find((item) => item.path === path);
-        this.updateRatingButton(path, preview?.title ?? titleFromPath(path));
-      })
-    );
     this.snippetRenderGenerations = new WeakMap();
     this.syncAnimationPreference();
-    if (this.hasRendered && this.containerEl.querySelector('.intelliscroll-body')) {
-      this.resumeRenderedView();
+    // The leaf may have been inactive when the view was constructed.
+    this.syncDwellActivity();
+    // Opening the feed always rebuilds it. A restored batch is a snapshot of
+    // what the vault looked like when the pane was last left, and showing it
+    // again is how deleted, renamed or newly added notes go unnoticed until a
+    // manual reshuffle.
+    await this.refreshCompletely();
+  }
+
+  /**
+   * Rebuild the feed from the vault as it is now.
+   *
+   * Called on every open and whenever the feed is revealed from the ribbon or
+   * command. Unlike a settings refresh, this drops the batch, the back stack,
+   * the scroll position and the per-path dwell bookkeeping: the reader asked to
+   * see the feed, not to resume yesterday's one.
+   */
+  async refreshCompletely(): Promise<void> {
+    if (this.isClosed) return;
+    // An in-flight refresh is already reading the vault; rendering on top of it
+    // would race two batch selections. Re-run when it finishes.
+    if (this.isRefreshing) {
+      this.pendingCompleteRefresh = true;
       return;
     }
-    await this.render();
+
+    // The outgoing batch was on screen and its dwell is a real observation.
+    // Finalise it before the cards and the per-path bookkeeping disappear.
+    void this.flushEngagement();
+
+    this.currentBatch = [];
+    this.batchHistory = [];
+    this.batchHistoryCursor = -1;
+    this.viewedPathsInBatch.clear();
+    this.dwell.clear();
+    this.visibleSince.clear();
+    this.focusedPath = null;
+    this.batchSettingsKey = null;
+    this.restoredScrollTop = 0;
+    this.restoredScrollAnchor = null;
+    this.cancelScrollRestores();
+    this.renderedSnippetCache.clear();
+    this.pluginRefreshExcludePaths.clear();
+    this.hasRendered = false;
+
+    await this.render(true);
   }
 
   /**
@@ -532,58 +618,6 @@ export class IntelliScrollView extends ItemView {
   rebuildForLanguageChange(): void {
     this.hasRendered = false;
     void this.render();
-  }
-
-  private resumeRenderedView(): void {
-    const body = this.containerEl.querySelector<HTMLElement>('.intelliscroll-body');
-    if (!body) return;
-
-    // Keep the existing DOM, scroll position, and rendered previews when
-    // Obsidian reopens this same view instance after same-tab navigation.
-    this.cardObserver = this.createCardObserver(body);
-    body.querySelectorAll<HTMLElement>('.intelliscroll-card').forEach((card) => {
-      const path = card.dataset.path;
-      const snippet = card.querySelector<HTMLElement>(
-        '.intelliscroll-card-snippet'
-      );
-      if (
-        !path ||
-        !this.viewedPathsInBatch.has(path) ||
-        snippet?.textContent === t('view.status.loading')
-      ) {
-        this.cardObserver?.observe(card);
-      }
-    });
-    body.querySelectorAll<HTMLImageElement>('img[data-src]').forEach((image) => {
-      if (image.getAttribute('src')) return;
-      const preview = this.currentBatch.find(
-        (candidate) => candidate.path === image.dataset.notePath
-      );
-      if (preview) {
-        this.setupImageLazyLoad(image, getImageDimensionCacheKey(preview));
-      }
-    });
-    body
-      .querySelectorAll<HTMLIFrameElement>('.intelliscroll-card-pdf')
-      .forEach((pdf) => {
-        if (!pdf.getAttribute('src')) this.setupPdfLazyLoad(pdf);
-      });
-    body
-      .querySelectorAll<HTMLVideoElement>('.intelliscroll-card-video')
-      .forEach((video) => {
-        if (!video.getAttribute('src')) this.setupVideoLazyLoad(video);
-      });
-    this.observeInfiniteScroll(body);
-
-    if (this.focusedPath) {
-      const focused = Array.from(
-        body.querySelectorAll<HTMLElement>('.intelliscroll-card')
-      ).find((card) => card.dataset.path === this.focusedPath);
-      if (focused) {
-        focused.classList.add('intelliscroll-card-focused');
-        focused.focus({ preventScroll: true });
-      }
-    }
   }
 
   private syncAnimationPreference(): void {
@@ -618,10 +652,17 @@ export class IntelliScrollView extends ItemView {
       }
     } catch (error) {
       console.error('Error refreshing vault index:', error);
+      // Surface the failure: the feed otherwise looks merely empty/stale.
+      new Notice(t('view.status.indexError'));
       refreshFailed = true;
     } finally {
       this.setRefreshing(false);
     }
+
+    // The view may have been closed while the index pass was running. Touching
+    // the detached container (or creating observers) after `onClose` would
+    // leak a second set of observers that nothing will ever disconnect.
+    if (this.isClosed) return;
 
     const settingsChanged =
       this.batchSettingsKey !== this.getBatchSettingsKey();
@@ -656,8 +697,22 @@ export class IntelliScrollView extends ItemView {
       }
 
       if (this.hasRendered) {
+        const body = this.containerEl.querySelector<HTMLElement>(
+          '.intelliscroll-body'
+        );
+        const batchReplaced = indexRefreshed || settingsChanged;
+
+        // A display-only change (preview size/mode, frontmatter rows) keeps the
+        // same batch; preserve where the reader was, because re-rolling is not
+        // happening and jumping to the top would lose their place.
+        if (!batchReplaced && body) {
+          this.restoredScrollTop = body.scrollTop;
+          this.restoredScrollAnchor = this.getScrollAnchor(body);
+        }
+
         this.renderBatch();
-        this.containerEl.querySelector('.intelliscroll-body')?.scrollTo({ top: 0 });
+        if (batchReplaced) body?.scrollTo({ top: 0 });
+        else this.restoreScrollPosition();
       }
     }
 
@@ -665,9 +720,25 @@ export class IntelliScrollView extends ItemView {
       this.pendingSettingsRefresh = false;
       await this.refreshForCurrentSettings();
     }
+    await this.drainPendingCompleteRefresh();
   }
 
-  private async render(): Promise<void> {
+  /**
+   * Run a complete refresh that was requested while another pass was indexing.
+   *
+   * Without this, clicking the ribbon during a settings refresh or a reshuffle
+   * would silently keep the old batch.
+   */
+  private async drainPendingCompleteRefresh(): Promise<void> {
+    if (!this.pendingCompleteRefresh) return;
+    this.pendingCompleteRefresh = false;
+    await this.refreshCompletely();
+  }
+
+  private async render(forceIndex = false): Promise<void> {
+    // The previous body is about to be discarded; release its observers (and
+    // the media elements they hold) even if the index pass below fails.
+    this.disconnectObservers();
     this.containerEl.empty();
     this.containerEl.addClass('intelliscroll-view-container');
     this.syncAnimationPreference();
@@ -778,19 +849,29 @@ export class IntelliScrollView extends ItemView {
     );
     bodyContainer.addEventListener(
       'wheel',
-      () => this.cancelScrollAnimation(),
+      () => {
+        this.cancelScrollAnimation();
+        // The reader is taking control; a pending restore would fight them.
+        this.cancelScrollRestores();
+      },
       { passive: true }
     );
     bodyContainer.addEventListener(
       'pointerdown',
-      () => this.cancelScrollAnimation(),
+      () => {
+        this.cancelScrollAnimation();
+        this.cancelScrollRestores();
+      },
       { passive: true }
     );
 
     // Refresh on every plugin session so a persisted index cannot outlive the
     // filters that were active when it was created. The indexer also detects
-    // filter changes made while the plugin is running.
+    // filter changes made while the plugin is running. A complete refresh
+    // (`refreshCompletely`) forces this pass even when the interval has not
+    // elapsed, because the point of opening the feed is to see the vault now.
     const needsInitialIndex = Object.keys(this.plugin.data.previews).length === 0;
+    const forceThisPass = forceIndex || needsInitialIndex;
     const loadingEl = needsInitialIndex
       ? bodyContainer.createDiv('intelliscroll-loading')
       : null;
@@ -808,7 +889,7 @@ export class IntelliScrollView extends ItemView {
             loadingEl.textContent = t('view.status.indexed', { done, total });
           }
         },
-        needsInitialIndex
+        forceThisPass
       );
       indexRefreshSucceeded = true;
       if (indexRefreshed) {
@@ -816,6 +897,7 @@ export class IntelliScrollView extends ItemView {
       }
     } catch (error) {
       console.error('Error indexing vault:', error);
+      new Notice(t('view.status.indexError'));
       if (loadingEl) {
         loadingEl.textContent = t('view.status.indexError');
       }
@@ -823,9 +905,12 @@ export class IntelliScrollView extends ItemView {
       this.setRefreshing(false);
     }
 
-    // A restored batch was built from the previous session's index and may
-    // contain notes excluded by the current settings. Keep it when the index
-    // check was a no-op so returning from a note preserves the same feed.
+    // Closed while indexing: do not touch the detached container or create
+    // observers that nothing will disconnect.
+    if (this.isClosed) return;
+
+    // An existing batch may contain notes the current index no longer admits.
+    // Keep it when the index check was a no-op (e.g. a language rebuild).
     if (indexRefreshSucceeded) {
       if (indexRefreshed) {
         if (this.currentBatch.length > 0) {
@@ -846,6 +931,15 @@ export class IntelliScrollView extends ItemView {
     this.hasRendered = true;
     this.renderBatchIntoContainer(bodyContainer);
     this.restoreScrollPosition();
+    await this.drainPendingCompleteRefresh();
+
+    // A settings change can land while the initial index pass is running, when
+    // `refreshForCurrentSettings` only sets this flag. Without draining it here
+    // the feed keeps a batch selected under the previous filters.
+    if (!this.isClosed && this.pendingSettingsRefresh) {
+      this.pendingSettingsRefresh = false;
+      await this.refreshForCurrentSettings();
+    }
   }
 
   private resolvePreviewPaths(paths: readonly string[]): NotePreview[] {
@@ -855,35 +949,64 @@ export class IntelliScrollView extends ItemView {
     });
   }
 
+  /**
+   * Cancel any deferred scroll restores.
+   *
+   * They exist to survive late layout (images, embeds), but once the reader
+   * scrolls or a new render starts they must not snap the feed back to an old
+   * position.
+   */
+  private cancelScrollRestores(): void {
+    for (const handle of this.scrollRestoreHandles) {
+      if (handle.kind === 'raf') window.cancelAnimationFrame(handle.id);
+      else window.clearTimeout(handle.id);
+    }
+    this.scrollRestoreHandles = [];
+  }
+
   private restoreScrollPosition(): void {
+    this.cancelScrollRestores();
     const scrollTop = this.restoredScrollTop;
+    const anchor = this.restoredScrollAnchor;
+
     const restore = (): void => {
       const body = this.containerEl.querySelector('.intelliscroll-body');
-      if (body instanceof HTMLElement) {
-        const anchor = this.restoredScrollAnchor;
-        const anchorCard = anchor
-          ? Array.from(
-              body.querySelectorAll<HTMLElement>('.intelliscroll-card')
-            ).find((card) => card.dataset.path === anchor.path)
-          : undefined;
-        if (anchor && anchorCard) {
-          const bodyTop = body.getBoundingClientRect().top;
-          const cardTop = anchorCard.getBoundingClientRect().top;
-          body.scrollTop += cardTop - bodyTop - anchor.topOffset;
-        } else {
-          body.scrollTop = scrollTop;
-        }
+      if (!(body instanceof HTMLElement)) return;
+      const anchorCard = anchor
+        ? Array.from(
+            body.querySelectorAll<HTMLElement>('.intelliscroll-card')
+          ).find((card) => card.dataset.path === anchor.path)
+        : undefined;
+      if (anchor && anchorCard) {
+        const bodyTop = body.getBoundingClientRect().top;
+        const cardTop = anchorCard.getBoundingClientRect().top;
+        body.scrollTop += cardTop - bodyTop - anchor.topOffset;
+      } else {
+        body.scrollTop = scrollTop;
       }
     };
 
+    const frame = (callback: () => void): void => {
+      this.scrollRestoreHandles.push({
+        kind: 'raf',
+        id: window.requestAnimationFrame(callback),
+      });
+    };
+    const after = (callback: () => void, delay: number): void => {
+      this.scrollRestoreHandles.push({
+        kind: 'timeout',
+        id: window.setTimeout(callback, delay),
+      });
+    };
+
     restore();
-    window.requestAnimationFrame(() => {
+    frame(() => {
       restore();
-      window.requestAnimationFrame(() => {
+      frame(() => {
         restore();
-        window.setTimeout(restore, 100);
-        window.setTimeout(restore, 350);
-        window.setTimeout(restore, 800);
+        after(restore, 100);
+        after(restore, 350);
+        after(restore, 800);
       });
     });
   }
@@ -953,12 +1076,12 @@ export class IntelliScrollView extends ItemView {
     this.updateBackButton();
 
     // Finalise the outgoing batch's dwell before its cards are torn down.
-    this.flushEngagement();
+    void this.flushEngagement();
 
-    // Stop observing cards from the previous batch before replacing them.
-    this.cardObserver?.disconnect();
-    this.infiniteScrollObserver?.disconnect();
-    this.infiniteScrollObserver = null;
+    // Stop observing cards and media from the previous batch before replacing
+    // them. The media observers hold strong references to detached elements,
+    // so leaving them connected leaks every image/PDF/video from every batch.
+    this.disconnectObservers();
     this.infiniteScrollLoading = false;
     this.infiniteScrollExhausted = false;
     this.viewedPathsInBatch.clear();
@@ -1299,6 +1422,7 @@ export class IntelliScrollView extends ItemView {
   }
 
   private markCardVisible(path: string): void {
+    if (this.dwellPaused) return;
     if (this.visibleSince.has(path)) return;
     this.visibleSince.set(path, Date.now());
     if (!this.dwell.has(path)) this.dwell.set(path, { ms: 0, opened: false });
@@ -1330,32 +1454,50 @@ export class IntelliScrollView extends ItemView {
    * Called before a batch is replaced and when the view closes, so the last
    * visible stretch of a card is not lost.
    */
-  private flushEngagement(): void {
+  private flushEngagement(): Promise<unknown>[] {
+    const now = Date.now();
+
+    // Fold the stretch of cards that are still on screen. Their exit callback
+    // will never arrive: the observer is disconnected and the DOM replaced
+    // right after this. Without this, reading one card for 30 s counts as zero
+    // dwell and is graded as a skip.
+    for (const path of Array.from(this.visibleSince.keys())) {
+      this.markCardHidden(path);
+    }
+
     const algorithm = this.effectiveAlgorithm();
     const samples = Array.from(this.dwell.entries());
-    const now = Date.now();
+    const rated = new Set(this.explicitlyRated);
 
     this.dwell.clear();
     this.visibleSince.clear();
+    this.explicitlyRated.clear();
 
-    if (algorithm === 'off') return;
+    if (algorithm === 'off') return [];
     // Manual grading records only explicit ratings, never observed behaviour.
-    if (this.effectiveGradingMode() === 'manual') return;
-    if (!this.plugin.srsStore?.isLoaded) return;
-    if (!getAlgorithm(algorithm).schedules) return;
+    if (this.effectiveGradingMode() === 'manual') return [];
+    if (!this.plugin.srsStore?.isLoaded) return [];
+    if (!getAlgorithm(algorithm).schedules) return [];
 
     const thresholds = thresholdsFor(
       this.effectiveSensitivity(),
       this.plugin.getEffectiveAlgorithm().sensitivityThresholds
     );
 
+    const writes: Promise<unknown>[] = [];
     for (const [path, sample] of samples) {
+      // An explicit rating already settled this note for the batch. Writing
+      // the automatic verdict afterwards would overwrite it (the store applies
+      // reviews in order), so the manual override would never win.
+      if (rated.has(path)) continue;
+
       const verdict = gradeEngagement(
         { opened: sample.opened, dwellMs: sample.ms },
         thresholds
       );
-      void this.recordEngagement(path, verdict, algorithm, now);
+      writes.push(this.recordEngagement(path, verdict, algorithm, now));
     }
+    return writes;
   }
 
   private async recordEngagement(
@@ -1365,6 +1507,13 @@ export class IntelliScrollView extends ItemView {
     now: number
   ): Promise<void> {
     try {
+      // The sample was collected while the card was shown, but the file may
+      // have been renamed or deleted since. Writing a "skip" for a path that no
+      // longer names a file would create a state at the vacant path — exactly
+      // the phantom schedule a later note at that path must not inherit.
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) return;
+
       const rating = ratingForVerdict(verdict);
       if (rating === null) {
         // A skip is the absence of a review: no schedule change, only
@@ -1373,8 +1522,6 @@ export class IntelliScrollView extends ItemView {
         return;
       }
 
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (!(file instanceof TFile)) return;
       const content = await this.app.vault.cachedRead(file);
 
       await this.plugin.srsStore.recordReview(
@@ -1819,6 +1966,7 @@ export class IntelliScrollView extends ItemView {
         indexRefreshed =
           (await this.plugin.indexer.refreshIfStale()) || indexRefreshed;
       }
+      if (this.isClosed) return;
 
       const settingsChanged =
         this.batchSettingsKey !== this.getBatchSettingsKey();
@@ -1837,13 +1985,15 @@ export class IntelliScrollView extends ItemView {
       this.containerEl.querySelector('.intelliscroll-body')?.scrollTo({ top: 0 });
     } catch (error) {
       console.error('Error refreshing vault index:', error);
+      new Notice(t('view.status.indexError'));
     } finally {
       this.setRefreshing(false);
-      if (this.pendingSettingsRefresh) {
+      if (!this.isClosed && this.pendingSettingsRefresh) {
         this.pendingSettingsRefresh = false;
         await this.refreshForCurrentSettings();
       }
     }
+    if (!this.isClosed) await this.drainPendingCompleteRefresh();
   }
 
   private async showPreviousBatch(): Promise<void> {
@@ -1878,26 +2028,45 @@ export class IntelliScrollView extends ItemView {
   }
 
   private revalidateBatchHistory(): void {
+    this.retainBatchHistory((batch) =>
+      this.resolvePreviewPaths(batch.map((preview) => preview.path))
+    );
+  }
+
+  /**
+   * Filter the back stack while keeping the cursor on the same *batch*.
+   *
+   * A numeric clamp is not enough: dropping a batch before the cursor shifts
+   * every later index, so the cursor silently lands on a different batch (or
+   * skips one when the cursor's own batch disappears).
+   */
+  private retainBatchHistory(
+    transform: (batch: NotePreview[]) => NotePreview[]
+  ): void {
     const previousCursor = this.batchHistoryCursor;
     const retained: Array<{ oldIndex: number; batch: NotePreview[] }> = [];
 
     this.batchHistory.forEach((batch, oldIndex) => {
-      const nextBatch = this.resolvePreviewPaths(
-        batch.map((preview) => preview.path)
-      );
-      if (nextBatch.length > 0) {
-        retained.push({ oldIndex, batch: nextBatch });
-      }
+      const next = transform(batch);
+      if (next.length > 0) retained.push({ oldIndex, batch: next });
     });
+    this.batchHistory = retained.map((entry) => entry.batch);
 
-    this.batchHistory = retained.map(({ batch }) => batch);
-    const retainedCursor = retained.findIndex(
-      ({ oldIndex }) => oldIndex === previousCursor
+    const exact = retained.findIndex(
+      (entry) => entry.oldIndex === previousCursor
+    );
+    if (exact >= 0) {
+      this.batchHistoryCursor = exact;
+      return;
+    }
+
+    // The batch that was on screen is gone. "Back" should reach the nearest
+    // remaining older batch, so park the cursor immediately before it.
+    const older = retained.findIndex(
+      (entry) => entry.oldIndex > previousCursor
     );
     this.batchHistoryCursor =
-      retainedCursor >= 0
-        ? retainedCursor
-        : Math.min(previousCursor, this.batchHistory.length - 1);
+      older >= 0 ? older - 1 : this.batchHistory.length - 1;
   }
 
   private setRefreshing(refreshing: boolean): void {
@@ -2015,7 +2184,9 @@ export class IntelliScrollView extends ItemView {
     }
     snippetEl.replaceChildren(...Array.from(clone.childNodes));
 
-    if (clone.querySelector('.dataview, .bases-view, .bases-embed')) {
+    // Query the live snippet, not `clone`: its children were just moved out,
+    // so the clone is empty and this check used to be dead code.
+    if (snippetEl.querySelector('.dataview, .bases-view, .bases-embed')) {
       const interactionShield = snippetEl.createDiv(
         'intelliscroll-card-snippet-interaction-shield'
       );
@@ -2447,30 +2618,202 @@ export class IntelliScrollView extends ItemView {
     this.cacheCardSize(card);
   }
 
+  /**
+   * Follow a rename in everything this view holds in memory.
+   *
+   * The plugin migrates the persistent stores; this covers the copies the view
+   * already made — the batch on screen, the back stack, per-path dwell
+   * counters and the rendered DOM. Patching in place rather than re-rendering
+   * keeps the scroll position and the cards that were not renamed untouched.
+   */
+  handlePathRename(rename: PathRename): void {
+    if (this.isClosed) return;
+
+    // A preview the plugin dropped (moved into an ignored folder, or renamed
+    // into a different file kind) must leave the batch as well.
+    const keepInBatch = (batch: NotePreview[]): NotePreview[] =>
+      batch.filter((preview) => {
+        const next = rename.map(preview.path);
+        if (next === null) return true;
+        if (!(next in this.plugin.data.previews)) return false;
+        preview.path = next;
+        preview.title = titleFromPath(next);
+        return true;
+      });
+
+    this.currentBatch = keepInBatch(this.currentBatch);
+    this.retainBatchHistory(keepInBatch);
+
+    const remapSet = (set: Set<string>): Set<string> => {
+      const next = new Set<string>();
+      for (const path of set) {
+        const mapped = rename.map(path);
+        if (mapped === null) next.add(path);
+        else if (mapped in this.plugin.data.previews) next.add(mapped);
+      }
+      return next;
+    };
+    const remapMap = <T>(map: Map<string, T>): Map<string, T> => {
+      const next = new Map<string, T>();
+      for (const [path, value] of map) {
+        const mapped = rename.map(path);
+        if (mapped === null) next.set(path, value);
+        else if (mapped in this.plugin.data.previews) next.set(mapped, value);
+      }
+      return next;
+    };
+
+    this.viewedPathsInBatch = remapSet(this.viewedPathsInBatch);
+    this.dwell = remapMap(this.dwell);
+    this.visibleSince = remapMap(this.visibleSince);
+
+    if (this.focusedPath !== null) {
+      const mapped = rename.map(this.focusedPath);
+      if (mapped !== null) {
+        this.focusedPath =
+          mapped in this.plugin.data.previews ? mapped : null;
+      }
+    }
+
+    invalidateNoteCaches(rename.from);
+    invalidateRenderedSnippetCache(this.renderedSnippetCache, rename.from);
+
+    for (const card of Array.from(
+      this.containerEl.querySelectorAll<HTMLElement>('.intelliscroll-card')
+    )) {
+      const oldPath = card.dataset.path;
+      if (!oldPath) continue;
+      const next = rename.map(oldPath);
+      if (next === null) continue;
+
+      const preview = this.currentBatch.find(
+        (candidate) => candidate.path === next
+      );
+      if (!preview) {
+        this.releaseCard(card);
+        continue;
+      }
+      this.applyCardPath(card, preview);
+    }
+
+    this.updateBackButton();
+  }
+
+  /** Point one card at its note's new path after a rename. */
+  private applyCardPath(card: HTMLElement, preview: NotePreview): void {
+    card.dataset.path = preview.path;
+    card.setAttribute('aria-label', preview.title);
+
+    const title = card.querySelector<HTMLElement>(
+      '.intelliscroll-card-title'
+    );
+    if (title) title.textContent = preview.title;
+
+    const folder = preview.path.includes('/')
+      ? preview.path.slice(0, preview.path.lastIndexOf('/'))
+      : '';
+    const pathEl = card.querySelector<HTMLElement>('.intelliscroll-card-path');
+    if (pathEl) {
+      pathEl.textContent =
+        folder.length > 0 ? folder : t('view.path.vaultRoot');
+    }
+
+    const rate = card.querySelector<HTMLElement>('.intelliscroll-card-rate');
+    if (rate) {
+      rate.dataset.ratingPath = preview.path;
+      paintRatingButton(this.plugin, rate, preview.path, preview.title);
+    }
+
+    // A standalone attachment's image path is the file itself. If it moved,
+    // the already-resolved `src` is stale and the lazy loader must re-resolve.
+    const image = card.querySelector<HTMLImageElement>(
+      '.intelliscroll-card-image'
+    );
+    if (image) {
+      image.dataset.notePath = preview.path;
+      const src = preview.imagePath ?? '';
+      if (image.dataset.src !== src) {
+        image.dataset.src = src;
+        image.src = '';
+        this.setupImageLazyLoad(image, getImageDimensionCacheKey(preview));
+      }
+    }
+
+    // Lazy media carries the note path it resolved against; a stale value
+    // would keep resolving embeds relative to the old location.
+    for (const element of Array.from(
+      card.querySelectorAll<HTMLElement>('[data-note-path], [data-path]')
+    )) {
+      if (element.dataset.notePath !== undefined) {
+        element.dataset.notePath = preview.path;
+      }
+      if (element.dataset.path !== undefined) {
+        element.dataset.path = preview.path;
+      }
+    }
+  }
+
+  /** Remove every card below a deleted folder and forget its bookkeeping. */
+  handleFolderDeleted(folder: string): void {
+    if (this.isClosed) return;
+
+    const under = (path: string): boolean =>
+      path === folder || path.startsWith(`${folder}/`);
+
+    this.currentBatch = this.currentBatch.filter(
+      (preview) => !under(preview.path)
+    );
+    this.retainBatchHistory((batch) =>
+      batch.filter((preview) => !under(preview.path))
+    );
+
+    for (const path of Array.from(this.viewedPathsInBatch)) {
+      if (under(path)) this.viewedPathsInBatch.delete(path);
+    }
+    for (const path of Array.from(this.dwell.keys())) {
+      if (under(path)) this.dwell.delete(path);
+    }
+    for (const path of Array.from(this.visibleSince.keys())) {
+      if (under(path)) this.visibleSince.delete(path);
+    }
+    if (this.focusedPath !== null && under(this.focusedPath)) {
+      this.focusedPath = null;
+    }
+
+    for (const card of Array.from(
+      this.containerEl.querySelectorAll<HTMLElement>('.intelliscroll-card')
+    )) {
+      if (under(card.dataset.path ?? '')) this.releaseCard(card);
+    }
+
+    invalidateNoteCaches(folder);
+    invalidateRenderedSnippetCache(this.renderedSnippetCache, folder);
+    this.updateBackButton();
+  }
+
   private async removeDeletedNote(path: string): Promise<void> {
     const card = Array.from(
       this.containerEl.querySelectorAll<HTMLElement>('.intelliscroll-card')
     ).find((candidate) => candidate.dataset.path === path);
 
+    // Dwell and the visibility edge are this view's own bookkeeping; the
+    // plugin removes the persisted copies, so they must be cleaned here even
+    // when there is no card left to remove.
+    this.dwell.delete(path);
+    this.visibleSince.delete(path);
+    this.viewedPathsInBatch.delete(path);
+    if (this.focusedPath === path) this.focusedPath = null;
+
     const hadPreview = path in this.plugin.data.previews;
     const hadHistory = this.plugin.data.history.some(
       (entry) => entry.path === path
     );
-    if (!card && !hadPreview && !hadHistory) return;
-
-    if (card) {
-      this.cardObserver?.unobserve(card);
-      card.querySelectorAll<HTMLImageElement>('img').forEach((image) => {
-        this.imageObserver?.unobserve(image);
-      });
-      card.querySelectorAll<HTMLIFrameElement>('iframe').forEach((pdf) => {
-        this.pdfObserver?.unobserve(pdf);
-      });
-      card.querySelectorAll<HTMLVideoElement>('video').forEach((video) => {
-        this.videoObserver?.unobserve(video);
-      });
-      card.remove();
+    if (!card && !hadPreview && !hadHistory) {
+      this.updateBackButton();
+      return;
     }
+
+    if (card) this.releaseCard(card);
 
     const nextBatches = removePathFromBatches(
       this.currentBatch,
@@ -2489,14 +2832,46 @@ export class IntelliScrollView extends ItemView {
     );
     invalidateNoteCaches(path);
 
-    for (const key of this.renderedSnippetCache.keys()) {
-      if (key.includes(`:${path}:`)) {
-        this.renderedSnippetCache.delete(key);
-      }
-    }
+    invalidateRenderedSnippetCache(this.renderedSnippetCache, path);
 
     this.updateBackButton();
     await this.plugin.saveSettings();
+  }
+
+  /** Disconnect every observer that belongs to the current batch. */
+  private disconnectObservers(): void {
+    this.cardObserver?.disconnect();
+    this.cardObserver = null;
+    this.infiniteScrollObserver?.disconnect();
+    this.infiniteScrollObserver = null;
+    this.imageObserver?.disconnect();
+    this.imageObserver = null;
+    this.pdfObserver?.disconnect();
+    this.pdfObserver = null;
+    this.videoObserver?.disconnect();
+    this.videoObserver = null;
+  }
+
+  /**
+   * Stop observing a card and detach it.
+   *
+   * Detaching without unobserve leaves the observers holding every removed
+   * card (and its media) alive for the life of the view.
+   */
+  private releaseCard(card: HTMLElement): void {
+    const rateButton = card.querySelector('.intelliscroll-card-rate');
+    if (rateButton) closePopoverFor(rateButton);
+    this.cardObserver?.unobserve(card);
+    card.querySelectorAll<HTMLImageElement>('img').forEach((image) => {
+      this.imageObserver?.unobserve(image);
+    });
+    card.querySelectorAll<HTMLIFrameElement>('iframe').forEach((pdf) => {
+      this.pdfObserver?.unobserve(pdf);
+    });
+    card.querySelectorAll<HTMLVideoElement>('video').forEach((video) => {
+      this.videoObserver?.unobserve(video);
+    });
+    card.remove();
   }
 
   private async openPreview(preview: NotePreview): Promise<void> {
@@ -2667,41 +3042,32 @@ export class IntelliScrollView extends ItemView {
   private async flushHistorySave(): Promise<void> {
     if (!this.historySavePending) return;
     this.historySavePending = false;
-    await this.plugin.saveSettings();
+    try {
+      await this.plugin.saveSettings();
+    } catch (error) {
+      // Keep the pending flag so a later save retries; the entries live in
+      // memory until then. Reporting beats an unhandled rejection.
+      this.historySavePending = true;
+      console.error('[intelliscroll] could not save reading history', error);
+    }
   }
 
   async onClose(): Promise<void> {
     this.cancelScrollAnimation();
+    this.cancelScrollRestores();
     this.isClosed = true;
 
     // Capture whatever the last batch was showing before the view goes away.
-    this.flushEngagement();
+    // Keep the returned promises: `recordEngagement` reads the file before it
+    // enqueues, so a bare flush of the sidecar can run before those writes.
+    const engagementWrites = this.flushEngagement();
     this.snippetRenderGenerations = new WeakMap();
     this.pluginRefreshExcludePaths.clear();
     if (this.pluginRefreshTimer !== null) {
       window.clearTimeout(this.pluginRefreshTimer);
       this.pluginRefreshTimer = null;
     }
-    if (this.cardObserver) {
-      this.cardObserver.disconnect();
-      this.cardObserver = null;
-    }
-    if (this.imageObserver) {
-      this.imageObserver.disconnect();
-      this.imageObserver = null;
-    }
-    if (this.pdfObserver) {
-      this.pdfObserver.disconnect();
-      this.pdfObserver = null;
-    }
-    if (this.videoObserver) {
-      this.videoObserver.disconnect();
-      this.videoObserver = null;
-    }
-    if (this.infiniteScrollObserver) {
-      this.infiniteScrollObserver.disconnect();
-      this.infiniteScrollObserver = null;
-    }
+    this.disconnectObservers();
     this.renderedSnippetCache.clear();
     if (this.historySaveTimer !== null) {
       window.clearTimeout(this.historySaveTimer);
@@ -2709,8 +3075,8 @@ export class IntelliScrollView extends ItemView {
     }
     await this.flushHistorySave();
 
-    // The engagement flush above dispatches its writes asynchronously, so let
-    // them settle before the view is gone.
+    // Let every engagement write enqueue its line before flushing the sidecar.
+    await Promise.allSettled(engagementWrites);
     try {
       await this.plugin.srsStore?.flush();
     } catch (error) {
@@ -2844,19 +3210,27 @@ function rememberCardSize(
   });
 }
 
+/**
+ * Drop cached sizes for a path.
+ *
+ * Both the exact path and its descendants are matched: the same helper is used
+ * for a deleted/renamed folder, whose cards are keyed by their own full paths.
+ */
 function invalidateCardSizeCache(path: string): void {
-  const prefix = `${path}\u0000`;
+  const exact = `${path}\u0000`;
+  const below = `${path}/`;
   for (const key of cardSizeCache.keys()) {
-    if (key.startsWith(prefix)) {
+    if (key.startsWith(exact) || key.startsWith(below)) {
       cardSizeCache.delete(key);
     }
   }
 }
 
 function invalidateNoteCaches(path: string): void {
-  const imagePrefix = `${path}\u0000`;
+  const exact = `${path}\u0000`;
+  const below = `${path}/`;
   for (const key of imageDimensionCache.keys()) {
-    if (key.startsWith(imagePrefix)) {
+    if (key.startsWith(exact) || key.startsWith(below)) {
       imageDimensionCache.delete(key);
     }
   }
@@ -2876,8 +3250,12 @@ function invalidateRenderedSnippetCache(
   cache: Map<string, HTMLElement>,
   path: string
 ): void {
+  // Keys embed `:${path}:`; descendants of a renamed/deleted folder embed
+  // `:${path}/...`, so both forms have to go.
+  const exact = `:${path}:`;
+  const below = `:${path}/`;
   for (const key of cache.keys()) {
-    if (key.includes(`:${path}:`)) {
+    if (key.includes(exact) || key.includes(below)) {
       cache.delete(key);
     }
   }
@@ -2996,51 +3374,6 @@ function isMediaOnlyPreview(preview: NotePreview): boolean {
     (Boolean(preview.imagePath) && preview.snippet === '(no preview text)') ||
     /^📎 .+ attached$/.test(preview.snippet ?? '')
   );
-}
-
-function parseViewState(state: unknown): IntelliScrollViewState | null {
-  if (!isRecord(state)) return null;
-
-  const batchPaths = stringArray(state.batchPaths);
-  const rawHistory = state.batchHistoryPaths;
-  if (!batchPaths || !Array.isArray(rawHistory)) return null;
-
-  const batchHistoryPaths: string[][] = [];
-  for (const paths of rawHistory) {
-    const parsed = stringArray(paths);
-    if (!parsed) return null;
-    batchHistoryPaths.push(parsed);
-  }
-
-  const cursor = state.batchHistoryCursor;
-  const scrollTop = state.scrollTop;
-  const rawAnchor = state.scrollAnchor;
-  const scrollAnchor =
-    isRecord(rawAnchor) &&
-    typeof rawAnchor.path === 'string' &&
-    typeof rawAnchor.topOffset === 'number' &&
-    Number.isFinite(rawAnchor.topOffset)
-      ? { path: rawAnchor.path, topOffset: rawAnchor.topOffset }
-      : null;
-  return {
-    batchPaths,
-    batchHistoryPaths,
-    batchHistoryCursor:
-      typeof cursor === 'number' && Number.isInteger(cursor) ? cursor : 0,
-    scrollTop:
-      typeof scrollTop === 'number' && Number.isFinite(scrollTop)
-        ? Math.max(0, scrollTop)
-        : 0,
-    focusedPath:
-      typeof state.focusedPath === 'string' ? state.focusedPath : null,
-    scrollAnchor,
-  };
-}
-
-function stringArray(value: unknown): string[] | null {
-  return Array.isArray(value) && value.every((item) => typeof item === 'string')
-    ? value
-    : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

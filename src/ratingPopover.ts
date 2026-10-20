@@ -230,12 +230,26 @@ function installTapTracker(win: Window): void {
  * mis-tap the feed must avoid.
  */
 export function isTapGesture(event: MouseEvent): boolean {
+  // A keyboard activation (Enter/Space on a button) carries no pointer gesture.
+  // Judging it against the last mouse press would reject it once that press is
+  // older than the tap window, silently breaking keyboard use of the control.
+  if (event.detail === 0) return true;
+
   if (event.view) installTapTracker(event.view);
-  // No tracked press means the click came from the keyboard or a test harness;
-  // there is no gesture to distrust, so it is accepted.
-  if (!pressOrigin) return true;
-  if (pressMoved) return false;
-  return event.timeStamp - pressOrigin.at <= TAP_MAX_MS;
+
+  const origin = pressOrigin;
+  const moved = pressMoved;
+  // Consume the press. `pointerup` alone does not clear it, so without this a
+  // later synthetic or keyboard-originated click would be measured against a
+  // stale pointerdown.
+  pressOrigin = null;
+  pressMoved = false;
+
+  // No tracked press means the click came from a test harness; there is no
+  // gesture to distrust, so it is accepted.
+  if (!origin) return true;
+  if (moved) return false;
+  return event.timeStamp - origin.at <= TAP_MAX_MS;
 }
 
 /** One rating offered when the algorithm yields no ladder (a shuffled feed). */
@@ -298,6 +312,30 @@ export interface TierPopover {
  * again — and that would otherwise open a duplicate.
  */
 const openByAnchor = new WeakMap<HTMLElement, TierPopover>();
+
+/** Every open popover, so they can be closed when their owner goes away. */
+const openPopovers = new Set<TierPopover>();
+
+/** Close the popover anchored to this control, if any. */
+export function closePopoverFor(anchor: Element): void {
+  openByAnchor.get(anchor as HTMLElement)?.close();
+}
+
+/** Close every open rating popover (plugin unload, overlay teardown). */
+export function closeAllTierPopovers(): void {
+  for (const popover of Array.from(openPopovers)) popover.close();
+}
+
+/**
+ * Start tracking pointer geometry for tap detection.
+ *
+ * Called at plugin load rather than lazily on first use: a tracker installed
+ * during the first click has already missed that gesture's pointerdown, so a
+ * swipe ending on a button would open a menu mid-scroll.
+ */
+export function watchTapGestures(win: Window): void {
+  installTapTracker(win);
+}
 
 /**
  * Open the popover anchored to an element. The caller owns dismissal only in so
@@ -448,6 +486,15 @@ export function openTierPopover(options: TierPopoverOptions): TierPopover {
         if (event.pointerType === 'mouse' && event.button !== 0) return;
         // Suppresses text selection and the long-press callout on touch.
         event.preventDefault();
+        // Capture the pointer: without it, releasing outside the button fires
+        // no pointerup here and the repeat interval keeps stepping the value
+        // until the popover closes.
+        try {
+          button.setPointerCapture(event.pointerId);
+        } catch {
+          // Not supported / pointer already gone; the window fallback below
+          // still stops the interval.
+        }
         press.down(Date.now());
         stop();
         timer = win.setInterval(() => {
@@ -455,16 +502,32 @@ export function openTierPopover(options: TierPopoverOptions): TierPopover {
           if (amount !== null) applyDelta(direction * amount);
         }, TICK_MS);
       });
-      button.addEventListener('pointerup', (event) => {
+      const finishPress = (event: PointerEvent): void => {
         event.preventDefault();
         const amount = press.up(Date.now());
         stop();
         // A tap that never accelerated applies exactly one base step.
         if (amount > 0) applyDelta(direction * amount);
-      });
+      };
+      button.addEventListener('pointerup', finishPress);
       button.addEventListener('pointercancel', () => {
         press.cancel();
         stop();
+      });
+      button.addEventListener('lostpointercapture', () => {
+        press.cancel();
+        stop();
+      });
+      // Fallback for the window losing the pointer without delivering an event
+      // to the button.
+      const onWindowPointerUp = (): void => {
+        const amount = press.up(Date.now());
+        stop();
+        if (amount > 0) applyDelta(direction * amount);
+      };
+      win.addEventListener('pointerup', onWindowPointerUp, true);
+      disposers.push(() => {
+        win.removeEventListener('pointerup', onWindowPointerUp, true);
       });
       button.addEventListener('click', (event) => event.preventDefault());
       button.addEventListener('contextmenu', (event) =>
@@ -494,6 +557,13 @@ export function openTierPopover(options: TierPopoverOptions): TierPopover {
   closeButton.addEventListener('click', () => close());
 
   const reposition = (): void => {
+    // The control can be rebuilt (rename, same-leaf navigation, overlay
+    // remount) while the menu is open. A menu anchored to a detached button
+    // can no longer be positioned, and its rows still hold the old path.
+    if (!options.anchor.isConnected) {
+      close();
+      return;
+    }
     const anchorRect = options.anchor.getBoundingClientRect();
     // The anchor scrolled out of the viewport entirely: the popover has nothing
     // left to point at, so it goes away with it.
@@ -528,8 +598,10 @@ export function openTierPopover(options: TierPopoverOptions): TierPopover {
   };
 
   const onOutsidePointerDown = (event: PointerEvent): void => {
-    const target = event.target;
-    if (!(target instanceof Node)) return;
+    // Duck-typed for popout windows, whose DOM nodes are not instances of the
+    // main window's `Node`.
+    const target = event.target as Node | null;
+    if (target === null || typeof target.nodeType !== 'number') return;
     if (el.contains(target)) return;
     // The anchor toggles the popover; closing here would fight its own click.
     if (options.anchor.contains(target)) return;
@@ -559,6 +631,7 @@ export function openTierPopover(options: TierPopoverOptions): TierPopover {
     close(): void {
       if (closed) return;
       closed = true;
+      openPopovers.delete(handle);
       if (openByAnchor.get(options.anchor) === handle) {
         openByAnchor.delete(options.anchor);
       }
@@ -573,6 +646,7 @@ export function openTierPopover(options: TierPopoverOptions): TierPopover {
   }
 
   openByAnchor.set(options.anchor, handle);
+  openPopovers.add(handle);
   refresh();
   reposition();
   el.style.removeProperty('visibility');

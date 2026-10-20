@@ -27,6 +27,20 @@ type LeitnerPayload = {
 };
 
 /**
+ * The box a stored payload describes, or -1 for "before the first box".
+ *
+ * An unengaged note has a placeholder state whose `data` is `{}`; treating
+ * that as a real payload makes `box` undefined, which propagates to a NaN
+ * payload. Validate the shape here rather than relying on the interval
+ * fallback to hide it.
+ */
+function boxOf(prior: LeitnerPayload | null): number {
+  if (prior === null || typeof prior.box !== 'number') return -1;
+  if (!Number.isFinite(prior.box)) return -1;
+  return Math.min(LAST_BOX, Math.max(-1, prior.box));
+}
+
+/**
  * The one computation both `review` and `ladder` go through, so a previewed
  * box and a committed box cannot disagree.
  */
@@ -52,7 +66,7 @@ export const leitnerAlgorithm: SchedulerAlgorithm = {
     const prior = payloadFor(previous, 'leitner') as LeitnerPayload | null;
     // A brand-new note sits "before" box 0, so its first success lands on the
     // 1-day box rather than skipping straight to 3 days.
-    const currentBox = prior ? prior.box : -1;
+    const currentBox = boxOf(prior);
     const box = nextBoxFor(currentBox, rating);
 
     return makeState({
@@ -66,7 +80,7 @@ export const leitnerAlgorithm: SchedulerAlgorithm = {
   },
   ladder(previous, ctx) {
     const prior = payloadFor(previous, 'leitner') as LeitnerPayload | null;
-    const currentBox = prior ? prior.box : -1;
+    const currentBox = boxOf(prior);
     return ladderFrom(
       RATING_ORDER,
       (rating) => BOX_INTERVALS_DAYS[nextBoxFor(currentBox, rating)] ?? 1,

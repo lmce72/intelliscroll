@@ -31,6 +31,14 @@ export class Indexer {
   private getConfig: () => IndexerConfig;
   private lastRefreshStartedAt = 0;
   private lastIndexedSettingsKey: string | null = null;
+  /**
+   * Frontmatter image properties the cached previews were built with.
+   *
+   * A change to them invalidates `imagePath` for every note, but the rebuild
+   * skips entries whose mtime matches. Zeroing the mtimes is what forces the
+   * re-extraction.
+   */
+  private lastIndexedImagePropsKey: string | null = null;
   private refreshPromise: Promise<void> | null = null;
 
   constructor(app: App, data: PluginData, getConfig: () => IndexerConfig) {
@@ -55,6 +63,9 @@ export class Indexer {
 
     const settingsKey = this.getIndexSettingsKey();
     const settingsChanged = settingsKey !== this.lastIndexedSettingsKey;
+    const imagePropsKey = JSON.stringify(
+      this.getConfig().frontmatterImageProps
+    );
 
     if (
       !force &&
@@ -62,6 +73,19 @@ export class Indexer {
       Date.now() - this.lastRefreshStartedAt < INDEX_REFRESH_INTERVAL_MS
     ) {
       return false;
+    }
+
+    // The preview's image path is derived from frontmatter/embeds, so a change
+    // to the configured properties has to re-read every note. The rebuild
+    // itself would otherwise reuse each mtime-valid entry and change nothing.
+    if (
+      settingsChanged &&
+      this.lastIndexedImagePropsKey !== null &&
+      imagePropsKey !== this.lastIndexedImagePropsKey
+    ) {
+      for (const preview of Object.values(this.data.previews)) {
+        preview.mtime = 0;
+      }
     }
 
     this.lastRefreshStartedAt = Date.now();
@@ -72,7 +96,15 @@ export class Indexer {
       // Keep the key captured at refresh start. If settings changed while an
       // index was being built, the next refresh will rebuild for the new key.
       this.lastIndexedSettingsKey = settingsKey;
+      this.lastIndexedImagePropsKey = imagePropsKey;
       return true;
+    } catch (error) {
+      // A failed build must not count as "fresh for the next five minutes".
+      // Without this reset, one transient failure (a file unreadable mid-sync,
+      // a plugin post-processor throwing) leaves the feed on the old index
+      // until the interval elapses or an unrelated file event marks it dirty.
+      this.lastRefreshStartedAt = 0;
+      throw error;
     } finally {
       this.refreshPromise = null;
     }
@@ -110,11 +142,17 @@ export class Indexer {
       // categories allows everything, whitelisting none allows nothing.
       if (!filter.passesPath(file.path)) continue;
 
-      // Standalone attachments cannot carry Markdown tags, and `tagsInert`
-      // means tag matching cannot exclude anything anyway, so both skip the
-      // metadata lookup entirely.
+      // Standalone attachments cannot carry Markdown tags. A blacklist (or an
+      // inert rule) admits them unconditionally, but a tag *whitelist* means
+      // "exclude unless something matched" — they can never match, so they
+      // must be excluded rather than bypassing the rule.
       const isMarkdown = file.extension.toLowerCase() === 'md';
-      if (!isMarkdown || filter.tagsInert) {
+      const tagWhitelist = this.getConfig().filter.tags.mode === 'whitelist';
+      if (!isMarkdown) {
+        if (!tagWhitelist) candidates.push(file);
+        continue;
+      }
+      if (filter.tagsInert) {
         candidates.push(file);
         continue;
       }

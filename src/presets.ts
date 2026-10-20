@@ -253,25 +253,32 @@ function validEntries<T>(
  * presets that no longer exist are removed. A malformed library degrades to a
  * working one rather than throwing.
  */
+/**
+ * Upgrade and validate a list of filter presets from untrusted input.
+ *
+ * Presets written before `ignore` existed lack the field, and the validator
+ * would reject them outright — which would silently replace a user's whole
+ * filter configuration. Upgrade the shape first, then validate. Shared with
+ * import so a pre-`ignore` export is not dropped either.
+ */
+export function upgradeFilterPresets(input: unknown): FilterPreset[] {
+  const raw = Array.isArray(input) ? input : [];
+  const upgraded = raw.map((entry) => {
+    if (typeof entry !== 'object' || entry === null) return entry;
+    if ((entry as Partial<FilterPreset>).ignore !== undefined) return entry;
+    return { ...(entry as object), ignore: emptyRule() };
+  });
+  return validEntries(upgraded, isFilterPreset);
+}
+
 export function ensureLibrary(input: unknown): PresetLibrary {
   const source =
     typeof input === 'object' && input !== null
       ? (input as Partial<PresetLibrary>)
       : {};
 
-  // Presets written before `ignore` existed lack the field, and the guard below
-  // would reject them outright — which would silently replace a user's whole
-  // filter configuration with a default one. Upgrade the shape first, then
-  // validate.
-  const rawFilters = Array.isArray(source.filters) ? source.filters : [];
-  const upgradedFilters = rawFilters.map((entry) => {
-    if (typeof entry !== 'object' || entry === null) return entry;
-    if ((entry as Partial<FilterPreset>).ignore !== undefined) return entry;
-    return { ...(entry as object), ignore: emptyRule() };
-  });
-
   const library: PresetLibrary = {
-    filters: validEntries(upgradedFilters, isFilterPreset),
+    filters: upgradeFilterPresets(source.filters),
     algorithms: validEntries(source.algorithms, isAlgorithmPreset),
     displays: validEntries(source.displays, isDisplayPreset),
     totals: validEntries(source.totals, isTotalPreset),
