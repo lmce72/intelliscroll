@@ -1967,6 +1967,9 @@ export class IntelliScrollView extends ItemView {
     this.setRefreshing(true);
 
     try {
+      // A reshuffle is another moment a synced data.json may have arrived
+      // while the feed stayed open. Adopt it before re-reading the vault.
+      await this.plugin.reloadSettingsIfChangedExternally();
       let indexRefreshed = await this.plugin.indexer.refreshIfStale();
       // Settings may have changed while the first rebuild was in progress.
       // Run the indexer again for the final settings before selecting a batch.
