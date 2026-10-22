@@ -585,6 +585,11 @@ export class IntelliScrollView extends ItemView {
       return;
     }
 
+    // A sync tool may have replaced data.json since this instance loaded it
+    // (for example an ignore rule added on another device). Adopt it before
+    // the index pass decides what belongs in the feed.
+    await this.plugin.reloadSettingsIfChangedExternally();
+
     // The outgoing batch was on screen and its dwell is a real observation.
     // Finalise it before the cards and the per-path bookkeeping disappear.
     void this.flushEngagement();
@@ -635,11 +640,14 @@ export class IntelliScrollView extends ItemView {
   }
 
   async refreshForCurrentSettings(): Promise<void> {
-    this.syncAnimationPreference();
     if (this.isRefreshing) {
       this.pendingSettingsRefresh = true;
       return;
     }
+
+    // A sync tool may have replaced data.json since the last pass.
+    await this.plugin.reloadSettingsIfChangedExternally();
+    this.syncAnimationPreference();
 
     this.setRefreshing(true);
     let indexRefreshed = false;

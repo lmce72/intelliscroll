@@ -383,18 +383,98 @@ export default class IntelliScrollPlugin extends Plugin {
 
   private settingsRefreshTimer: number | null = null;
 
-  async onload(): Promise<void> {
-    type LoadedPluginData = Omit<PluginData, 'settings'> & {
-      settings?: Record<string, unknown>;
-    };
+  /**
+   * Signature (`mtime:size`) of `data.json` as last read or written by this
+   * instance. A different signature means a sync tool replaced the file.
+   */
+  private dataSignature: string | null = null;
+  private dataReloadInFlight = false;
 
-    // Load data
-    const loadedData = (await this.loadData()) as LoadedPluginData | null;
-    const loadedSettings: Record<string, unknown> =
-      loadedData?.settings && typeof loadedData.settings === 'object'
-        ? loadedData.settings
-        : {};
+  private dataJsonPath(): string {
+    return `${this.app.vault.configDir}/plugins/${this.manifest.id}/data.json`;
+  }
 
+  private async currentDataSignature(): Promise<string | null> {
+    try {
+      const stat = await this.app.vault.adapter.stat(this.dataJsonPath());
+      return stat ? `${stat.mtime}:${stat.size}` : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Adopt a `data.json` that was replaced outside this instance.
+   *
+   * Sync tools write the plugin's data file directly; Obsidian does not reload
+   * plugin data for them. Without this check, an ignore rule added on another
+   * device is on disk but not in force until the app restarts, while the note
+   * files it excludes have already been synced in — exactly the "ignored
+   * folder is back" symptom.
+   */
+  async reloadSettingsIfChangedExternally(): Promise<boolean> {
+    if (this.dataReloadInFlight) return false;
+
+    const signature = await this.currentDataSignature();
+    if (signature === null) return false;
+    if (this.dataSignature === null) {
+      // Nothing to compare against yet; this file is the baseline.
+      this.dataSignature = signature;
+      return false;
+    }
+    if (signature === this.dataSignature) return false;
+
+    this.dataReloadInFlight = true;
+    try {
+      type LoadedPluginData = Omit<PluginData, 'settings'> & {
+        settings?: Record<string, unknown>;
+      };
+      const loaded = (await this.loadData()) as LoadedPluginData | null;
+      const rawSettings =
+        loaded?.settings && typeof loaded.settings === 'object'
+          ? loaded.settings
+          : {};
+
+      const { settings, migrated } = this.buildSettingsFromLoaded(rawSettings);
+      this.data.settings = settings;
+
+      // The index is rebuilt right after this, so the synced previews are a
+      // starting point rather than the final word. Missing blocks must not
+      // erase local state.
+      if (loaded?.previews && typeof loaded.previews === 'object') {
+        this.data.previews = loaded.previews;
+      }
+      if (Array.isArray(loaded?.history)) {
+        this.data.history = loaded.history;
+      }
+      if (typeof loaded?.indexFormatVersion === 'number') {
+        this.data.indexFormatVersion = loaded.indexFormatVersion;
+      }
+
+      setLanguage(settings.language);
+      this.indexer.markDirty();
+      this.dataSignature = signature;
+      if (migrated) await this.saveSettings();
+      return true;
+    } catch (error) {
+      logSrsError('failed to reload synced settings', error);
+      return false;
+    } finally {
+      this.dataReloadInFlight = false;
+    }
+  }
+
+  /**
+   * Build the settings object from the raw `data.json` settings.
+   *
+   * Shared by startup and the external-reload path: a synced `data.json` from
+   * another device can change while this instance is running. One
+   * normalisation path means a reloaded file cannot introduce values that a
+   * fresh start would reject.
+   */
+  private buildSettingsFromLoaded(
+    loadedSettings: Record<string, unknown>
+  ): { settings: PluginSettings; migrated: boolean } {
     let migrated = false;
 
     // Absent means "written before this counter existed", so every migration
@@ -534,7 +614,23 @@ export default class IntelliScrollPlugin extends Plugin {
 
     // Recording the version is itself a change worth persisting, or the
     // migrations it gates would run again on the next load.
-    if (loadedSettingsVersion < CURRENT_SETTINGS_VERSION) migrated = true;
+
+    return { settings, migrated };
+  }
+
+  async onload(): Promise<void> {
+    type LoadedPluginData = Omit<PluginData, 'settings'> & {
+      settings?: Record<string, unknown>;
+    };
+
+    // Load data
+    const loadedData = (await this.loadData()) as LoadedPluginData | null;
+    const loadedSettings: Record<string, unknown> =
+      loadedData?.settings && typeof loadedData.settings === 'object'
+        ? loadedData.settings
+        : {};
+
+    let { settings, migrated } = this.buildSettingsFromLoaded(loadedSettings);
 
     // Point the translator before anything renders, so the very first paint is
     // already in the right language rather than flashing English.
@@ -728,6 +824,9 @@ export default class IntelliScrollPlugin extends Plugin {
         this.noteOverlay?.refresh();
       })
     );
+
+    // Baseline for detecting a synced replacement later in this session.
+    this.dataSignature = await this.currentDataSignature();
   }
 
   async activateView(): Promise<void> {
@@ -989,6 +1088,9 @@ export default class IntelliScrollPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.data);
+    // Remember what our own write looks like, so the next feed open does not
+    // mistake it for a synced replacement.
+    this.dataSignature = await this.currentDataSignature();
   }
 
   async saveSettingsAndRefreshViews(): Promise<void> {
