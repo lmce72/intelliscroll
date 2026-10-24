@@ -49,6 +49,7 @@ import {
 import { compileFilter } from './filtering';
 import { NoteOverlay } from './noteOverlay';
 import { watchTapGestures } from './ratingPopover';
+import { normalizeMoveTargetFolder } from './moveTarget';
 import { Indexer } from './indexer';
 import { SrsStore, logSrsError } from './srsLog';
 import { IntelliScrollView, VIEW_TYPE_INTELLISCROLL } from './view';
@@ -607,6 +608,10 @@ export default class IntelliScrollPlugin extends Plugin {
         typeof loadedSettings.infiniteScroll === 'boolean'
           ? loadedSettings.infiniteScroll
           : DEFAULT_SETTINGS.infiniteScroll,
+      moveTargetFolder:
+        typeof loadedSettings.moveTargetFolder === 'string'
+          ? normalizeMoveTargetFolder(loadedSettings.moveTargetFolder)
+          : DEFAULT_SETTINGS.moveTargetFolder,
       presets,
       ...activeIds,
       settingsVersion: CURRENT_SETTINGS_VERSION,

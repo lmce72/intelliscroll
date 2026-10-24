@@ -40,6 +40,23 @@ export const messages: MessageModule = {
     'view.action.saveEnabled': 'Save the temporary filter as a new preset',
     'view.action.saveDisabled': 'Nothing to save: no temporary filter changes',
     'view.action.settings': 'Settings',
+    'view.action.noteActions': 'Note actions',
+
+    'view.noteActions.moveTo': 'Move to…',
+    'view.noteActions.moveToConfigured': 'Move to {folder}',
+    'view.noteActions.delete': 'Delete note',
+    'view.noteActions.folderPrompt': 'Move note to folder…',
+    'view.noteActions.moveFailed': 'Could not move the note.',
+    'view.noteActions.collision':
+      'A note with that name already exists in the destination.',
+    'view.noteActions.folderMissing': 'The destination folder no longer exists.',
+
+    'view.delete.title': 'Delete note?',
+    'view.delete.confirm':
+      'Delete “{name}”? The vault’s delete setting decides whether it goes to the trash.',
+    'view.delete.cancel': 'Cancel',
+    'view.delete.confirmButton': 'Delete',
+    'view.delete.failed': 'Could not delete the note.',
 
     'view.action.rate': 'Rate {title}',
     'view.action.rated': 'Rated {rating}',
@@ -127,6 +144,21 @@ export const messages: MessageModule = {
     'view.action.saveEnabled': '把临时过滤存成新预设',
     'view.action.saveDisabled': '没有可保存的内容：当前没有临时过滤改动',
     'view.action.settings': '设置',
+    'view.action.noteActions': '笔记操作',
+
+    'view.noteActions.moveTo': '移动到…',
+    'view.noteActions.moveToConfigured': '移动到 {folder}',
+    'view.noteActions.delete': '删除笔记',
+    'view.noteActions.folderPrompt': '将笔记移动到文件夹…',
+    'view.noteActions.moveFailed': '无法移动笔记。',
+    'view.noteActions.collision': '目标文件夹中已存在同名笔记。',
+    'view.noteActions.folderMissing': '目标文件夹已不存在。',
+
+    'view.delete.title': '删除笔记？',
+    'view.delete.confirm': '删除「{name}」？是否移入废纸篓取决于仓库的删除设置。',
+    'view.delete.cancel': '取消',
+    'view.delete.confirmButton': '删除',
+    'view.delete.failed': '无法删除笔记。',
 
     'view.action.rate': '给「{title}」评分',
     'view.action.rated': '已评为{rating}',

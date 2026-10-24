@@ -37,6 +37,7 @@ import { clampDwell, gradeEngagement, ratingForVerdict, thresholdsFor } from './
 import { SrsStore, logSrsError } from './srsLog';
 import { ignoreIcon, ignoreLabel, isIgnored, paintRatingButton, showIgnoreMenu, showRatingMenu } from './rating';
 import { closePopoverFor } from './ratingPopover';
+import { showNoteActionsMenu } from './noteActions';
 import { passesFileTypeRule } from './filtering';
 import { pickCardIndex } from './navigation';
 import { ShortcutsModal } from './help';
@@ -1746,6 +1747,36 @@ export class IntelliScrollView extends ItemView {
     });
   }
 
+  /**
+   * The note-actions control for a card: one icon opening move/delete.
+   *
+   * Kept separate from rating and ignoring because those act on the feed,
+   * while these act on the file itself.
+   */
+  private renderNoteActionsButton(
+    container: HTMLElement,
+    preview: NotePreview
+  ): void {
+    const button = container.createEl('button', {
+      cls: 'clickable-icon intelliscroll-card-note-actions',
+    });
+    button.dataset.notePath = preview.path;
+    setIcon(button, 'ellipsis');
+    const label = t('view.action.noteActions');
+    button.setAttribute('aria-label', label);
+    button.setAttribute('title', label);
+
+    button.addEventListener('click', (event) => {
+      // The card itself opens the note; the menu must not do that.
+      event.stopPropagation();
+      showNoteActionsMenu({
+        plugin: this.plugin,
+        event,
+        path: preview.path,
+      });
+    });
+  }
+
   /** Show the chosen rating on the card so the action has visible feedback. */
   private updateRatingButton(path: string, title: string): void {
     const card = Array.from(
@@ -2248,18 +2279,22 @@ export class IntelliScrollView extends ItemView {
     const date = new Date(preview.mtime);
     dateEl.textContent = date.toLocaleDateString();
 
+    // One actions container for both controls. The row spreads its children
+    // apart, so separate children would strand the buttons at opposite ends of
+    // the card instead of keeping them together.
+    const actions = titleRow.createDiv('intelliscroll-card-actions');
+
     // Manual rating, when the user has asked for it. This is the only route by
     // which a negative rating can ever reach a scheduler — automatic grading is
     // deliberately incapable of inventing one — so without this control the
     // 'manual' mode would record nothing at all.
     if (this.shouldOfferExplicitRating()) {
-      // Wrapped in one container rather than added to the row directly. The row
-      // spreads its children apart (`justify-content: space-between`), so two
-      // separate children would strand the buttons at opposite ends of the card
-      // instead of keeping them next to each other.
-      const actions = titleRow.createDiv('intelliscroll-card-actions');
       this.renderRatingButton(actions, preview);
     }
+
+    // File-level actions (move, delete), shared with the note's floating
+    // control so both surfaces offer the same operations.
+    this.renderNoteActionsButton(actions, preview);
 
     // The note's path, with the ignore control beside it. The path is what
     // tells you which folder an entry in that menu refers to, so the button

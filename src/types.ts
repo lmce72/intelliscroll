@@ -432,6 +432,15 @@ export interface PluginSettings {
   batchSize: number;
   infiniteScroll: boolean;
 
+  /**
+   * Folder used by the note actions menu's one-click move.
+   *
+   * Empty hides that action; `/` means the vault root. This is a root setting
+   * rather than a preset field because it changes where a file is stored, not
+   * which notes appear in the feed.
+   */
+  moveTargetFolder: string;
+
   presets: PresetLibrary;
   activeFilterPresetId: string;
   activeAlgorithmPresetId: string;

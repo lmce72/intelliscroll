@@ -7,6 +7,7 @@ import {
   type SettingDefinitionItem,
 } from 'obsidian';
 import IntelliScrollPlugin from './main';
+import { normalizeMoveTargetFolder } from './moveTarget';
 import {
   activeAlgorithm,
   activeDisplay,
@@ -69,6 +70,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   language: 'auto',
   batchSize: 20,
   infiniteScroll: false,
+  moveTargetFolder: '',
   presets: DEFAULT_PRESETS,
   activeFilterPresetId: DEFAULT_PRESETS.filters[0]!.id,
   activeAlgorithmPresetId: DEFAULT_PRESETS.algorithms[0]!.id,
@@ -128,6 +130,22 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         desc: t('settings.infiniteScroll.desc'),
         control: { type: 'toggle', key: 'infiniteScroll' },
       },
+      {
+        name: t('settings.noteActions.title'),
+        render: (setting) => {
+          setting.setName(t('settings.noteActions.title')).setHeading();
+        },
+      },
+      {
+        name: t('settings.moveTargetFolder.name'),
+        desc: t('settings.moveTargetFolder.desc'),
+        control: {
+          type: 'folder',
+          key: 'moveTargetFolder',
+          includeRoot: true,
+          placeholder: t('settings.moveTargetFolder.placeholder'),
+        },
+      },
       // Everything from Presets down — the preset selectors, their values, their
       // modes and their manage rows — is emitted by the preset manager module,
       // so a group's controls stay together and in one place to edit. The
@@ -185,6 +203,7 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
     return {
       batchSize: this.plugin.data.settings.batchSize,
       infiniteScroll: this.plugin.data.settings.infiniteScroll,
+      moveTargetFolder: this.plugin.data.settings.moveTargetFolder,
       includeMediaOnlyNotes: filter.includeMediaOnlyNotes,
       showNonMarkdownFiles: allowsStandaloneFiles(filter.fileTypes),
       simplifiedView: display.simplifiedView,
@@ -227,6 +246,8 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
         return String(settings.batchSize);
       case 'infiniteScroll':
         return settings.infiniteScroll;
+      case 'moveTargetFolder':
+        return settings.moveTargetFolder;
       case 'includeMediaOnlyNotes':
         return settings.includeMediaOnlyNotes;
       case 'showNonMarkdownFiles':
@@ -335,6 +356,10 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
       case 'infiniteScroll':
         if (typeof value !== 'boolean') return;
         rootSettings.infiniteScroll = value;
+        break;
+      case 'moveTargetFolder':
+        if (typeof value !== 'string') return;
+        rootSettings.moveTargetFolder = normalizeMoveTargetFolder(value);
         break;
       case 'includeMediaOnlyNotes':
         if (typeof value !== 'boolean') return;
@@ -503,6 +528,7 @@ export class IntelliScrollSettingTab extends PluginSettingTab {
     if (
       key !== 'batchSize' &&
       key !== 'infiniteScroll' &&
+      key !== 'moveTargetFolder' &&
       key !== 'language'
     ) {
       rootSettings.activeTotalPresetId = null;

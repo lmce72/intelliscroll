@@ -18,6 +18,7 @@ import {
   closePopoverFor,
   isTapGesture,
 } from './ratingPopover.ts';
+import { showNoteActionsMenu } from './noteActions.ts';
 import { activeDisplay } from './presets.ts';
 import { logSrsError } from './srsLog.ts';
 import { DWELL_HIGH_MS, MAX_DWELL_SAMPLE_MS } from './grading.ts';
@@ -28,6 +29,7 @@ const RATE_CLASS = 'intelliscroll-note-float-rate';
 const IGNORE_CLASS = 'intelliscroll-note-float-ignore';
 const RATINGS_CLASS = 'intelliscroll-note-float-ratings';
 const CHOICE_CLASS = 'intelliscroll-note-float-choice';
+const ACTIONS_CLASS = 'intelliscroll-note-float-actions';
 
 /**
  * Whether the opt-in "offer the ratings once read" behaviour is on.
@@ -415,6 +417,22 @@ export class NoteOverlay {
     });
 
     const rateButton = this.createRateButton(container, path, title);
+
+    // File-level actions, matching the feed card's control. The button is
+    // rebuilt with the control whenever the pane's file changes, so `path`
+    // cannot go stale here.
+    const actionsButton = container.createEl('button', {
+      cls: `clickable-icon ${ACTIONS_CLASS}`,
+    });
+    setIcon(actionsButton, 'ellipsis');
+    const actionsLabel = t('view.action.noteActions');
+    actionsButton.setAttribute('aria-label', actionsLabel);
+    actionsButton.setAttribute('title', actionsLabel);
+    actionsButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      showNoteActionsMenu({ plugin: this.plugin, event, path });
+    });
+
     this.track(view, path, container, rateButton);
   }
 }

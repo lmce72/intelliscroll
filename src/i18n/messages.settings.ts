@@ -30,6 +30,13 @@ export const messages: MessageModule = {
     'settings.infiniteScroll.desc':
       'Automatically load more notes as you reach the end of the feed',
 
+    'settings.noteActions.title': 'Note actions',
+
+    'settings.moveTargetFolder.name': 'One-click move folder',
+    'settings.moveTargetFolder.desc':
+      'Folder used by the note actions menu’s one-click move. Leave empty to hide that action; choose the vault root to move notes to the top level.',
+    'settings.moveTargetFolder.placeholder': 'Choose a folder',
+
     'settings.includeMediaOnlyNotes.name': 'Include media-only notes',
     'settings.includeMediaOnlyNotes.desc':
       'Show Markdown notes containing only images or other attachments',
@@ -185,6 +192,13 @@ export const messages: MessageModule = {
 
     'settings.infiniteScroll.name': '无限滚动',
     'settings.infiniteScroll.desc': '滚动到卡片流末尾时自动加载更多笔记',
+
+    'settings.noteActions.title': '笔记操作',
+
+    'settings.moveTargetFolder.name': '一键移动目标文件夹',
+    'settings.moveTargetFolder.desc':
+      '笔记操作菜单中「一键移动」的目标文件夹。留空则隐藏该操作；选择仓库根目录则移动到顶层。',
+    'settings.moveTargetFolder.placeholder': '选择文件夹',
 
     'settings.includeMediaOnlyNotes.name': '包含纯媒体笔记',
     'settings.includeMediaOnlyNotes.desc':
