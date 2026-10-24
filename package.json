@@ -1,13 +1,17 @@
 {
   "name": "intelliscroll",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Scroll your own notes, resurfaced on a spaced-repetition schedule, not someone else's feed.",
   "main": "main.js",
   "type": "module",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "check:scripts": "node scripts/check-install-scripts.mjs",
+    "test": "node scripts/check-install-scripts.mjs && node --experimental-strip-types --test test/*.test.ts"
+  },
+  "allowScripts": {
+    "esbuild": false
   },
   "keywords": [],
   "author": "yaroshevych",
